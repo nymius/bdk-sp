@@ -1,0 +1,8 @@
+[package]
+name = "example_rust_silentpayments"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bdk_testenv = { version = "0.11.1" }
+silentpayments = { version = "0.4.0" }
