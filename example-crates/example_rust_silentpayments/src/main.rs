@@ -1,27 +1,20 @@
-use std::error::Error;
-use std::fmt;
-use std::str::FromStr;
-use std::time::Duration;
-
-use bdk_bitcoind_rpc::Emitter;
-
 use bdk_chain::{
     bitcoin::{
         bip32,
-        key::{Keypair, Parity, TapTweak, TweakedKeypair, UntweakedPublicKey},
-        secp256k1::{rand, Message, Secp256k1, SecretKey, Signing, Verification},
+        key::{Keypair, Parity, TweakedPublicKey},
+        secp256k1::Message,
         sighash::{Prevouts, SighashCache, TapSighashType},
         taproot::Signature,
-        transaction, Address, Amount, Network, PrivateKey, Psbt, Sequence,
-        Witness
+        transaction, Address, Amount, Network, PrivateKey, ScriptBuf, Sequence, Witness,
     },
-    indexer::keychain_txout::KeychainTxOutIndex,
     miniscript::{
-        bitcoin::secp256k1 as miniscript_secp, descriptor::DescriptorSecretKey, plan::Assets,
-        psbt::PsbtExt, Descriptor, DescriptorPublicKey,
+        bitcoin::secp256k1 as miniscript_secp, descriptor::DescriptorSecretKey, Descriptor,
+        DescriptorPublicKey,
     },
 };
 use bdk_testenv::{bitcoincore_rpc::RpcApi, TestEnv};
+use std::error::Error;
+use std::fmt;
 
 use silentpayments::secp256k1 as sp_secp;
 use silentpayments::utils::receiving::{
@@ -59,7 +52,6 @@ impl fmt::Display for Keychain {
 }
 
 const EXTERNAL_DESCRIPTOR: &str = "tr([3794bb41]tprv8ZgxMBicQKsPdnaCtnmcGNFdbPsYasZC8UJpLchusVmFodRNuKB66PhkiPWrfDhyREzj4vXtT9VfCP8mFFgy1MRo5bL4W8Z9SF241Sx4kmq/86'/1'/0'/0/*)#dg6yxkuh";
-const INTERNAL_DESCRIPTOR: &str = "tr([3794bb41]tprv8ZgxMBicQKsPdnaCtnmcGNFdbPsYasZC8UJpLchusVmFodRNuKB66PhkiPWrfDhyREzj4vXtT9VfCP8mFFgy1MRo5bL4W8Z9SF241Sx4kmq/86'/1'/0'/1/*)#uul9mrv0";
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -114,8 +106,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let tx_to_scan = rpc_client
         .get_raw_transaction(&txid, Some(&block_hash))
         .unwrap();
-    let input = tx_to_scan.input.first().unwrap().previous_output;
-    scan_block_for_silent_payment_tx(txout, tx_to_scan);
+    scan_block_for_silent_payment_tx(txout, tx_to_scan).unwrap();
     Ok(())
 }
 
@@ -123,7 +114,7 @@ fn scan_block_for_silent_payment_tx(
     prevout: transaction::TxOut,
     tx: transaction::Transaction,
 ) -> Result<(), Box<dyn Error>> {
-    let (receiver, spend_privkey, scan_privkey) = get_sp_keys();
+    let (receiver, _spend_privkey, scan_privkey) = get_sp_keys();
 
     let txin = tx.input.first().unwrap();
     let txin_outpoint = txin.previous_output;
@@ -190,28 +181,12 @@ fn fund_wallet_and_send_silent_payment(
     let secp = miniscript_secp::Secp256k1::new();
     let (descriptor, keymap) =
         <Descriptor<DescriptorPublicKey>>::parse_descriptor(&secp, EXTERNAL_DESCRIPTOR)?;
-    let (internal_descriptor, internal_keymap) =
-        <Descriptor<DescriptorPublicKey>>::parse_descriptor(&secp, INTERNAL_DESCRIPTOR)?;
 
-    let mut index = KeychainTxOutIndex::default();
-    let _ = index.insert_descriptor(Keychain::External, descriptor.clone())?;
-
-    let _ = index.insert_descriptor(Keychain::Internal, internal_descriptor.clone())?;
-
-    let ((spk_i, spk), _) =
-        KeychainTxOutIndex::reveal_next_spk(&mut index, Keychain::External).expect("Must exist");
-
+    let spk = descriptor.at_derivation_index(0).unwrap().script_pubkey();
     let addr = Address::from_script(spk.as_script(), network)?;
 
-    let ((spk_i_1, spk_1), _) =
-        KeychainTxOutIndex::reveal_next_spk(&mut index, Keychain::External).expect("Must exist");
-
-    let addr_1 = Address::from_script(spk_1.as_script(), network).unwrap();
-
-    assert_ne!(addr, addr_1);
-
-    let (addr_1_pubkey, addr_1_privkey) = keymap.iter().collect::<Vec<_>>()[0];
-    let addr_1_privkey = if let DescriptorSecretKey::XPrv(privkey) = addr_1_privkey {
+    let (_addr_pubkey, addr_privkey) = keymap.iter().collect::<Vec<_>>()[0];
+    let addr_privkey = if let DescriptorSecretKey::XPrv(privkey) = addr_privkey {
         privkey
     } else {
         panic!("just break");
@@ -226,7 +201,7 @@ fn fund_wallet_and_send_silent_payment(
     ///////////////////////////////////////////////////////////////////////////////
     let txid_21 = rpc_client
         .send_to_address(
-            &addr_1,
+            &addr,
             Amount::from_int_btc(21),
             None,
             None,
@@ -236,9 +211,9 @@ fn fund_wallet_and_send_silent_payment(
             None,
         )
         .unwrap();
-    let addr_1_block_hash = rpc_client.generate_to_address(1, &addr).unwrap()[0];
+    let addr_block_hash = rpc_client.generate_to_address(1, &addr).unwrap()[0];
 
-    let block_21 = rpc_client.get_block(&addr_1_block_hash).unwrap();
+    let block_21 = rpc_client.get_block(&addr_block_hash).unwrap();
     assert!(block_21
         .txdata
         .iter()
@@ -253,31 +228,27 @@ fn fund_wallet_and_send_silent_payment(
     ///////////////////////////////////////////////////////////////////////////////
 
     let tx_21 = rpc_client
-        .get_raw_transaction(&txid_21, Some(&addr_1_block_hash))
+        .get_raw_transaction(&txid_21, Some(&addr_block_hash))
         .unwrap();
 
     dbg!("silent payment input txid:", txid_21);
-    let outputs = tx_21
+    let (txout, output_idx) = tx_21
         .output
         .iter()
         .zip(0_u32..)
-        .filter(|(x, idx)| x.value == Amount::from_int_btc(21))
-        .collect::<Vec<_>>();
-    let (txout, output_idx) = outputs[0];
-
-    let master_privkey = addr_1_privkey.xkey;
-    let privkey_deriv_path = addr_1_privkey
-        .derivation_path
-        .child(bip32::ChildNumber::Normal { index: spk_i_1 });
-
-    let miniscript = miniscript_secp::Secp256k1::new();
-    let bip32_privkey = master_privkey
-        .derive_priv(&miniscript, &privkey_deriv_path)
+        .find(|(x, _idx)| x.value == Amount::from_int_btc(21))
         .unwrap();
 
-    let (x_only_internal, parity) = bip32_privkey
-        .private_key
-        .x_only_public_key(&Secp256k1::new());
+    let master_privkey = addr_privkey.xkey;
+    let privkey_deriv_path = addr_privkey
+        .derivation_path
+        .child(bip32::ChildNumber::Normal { index: 0 });
+
+    let bip32_privkey = master_privkey
+        .derive_priv(&secp, &privkey_deriv_path)
+        .unwrap();
+
+    let (x_only_internal, parity) = bip32_privkey.private_key.x_only_public_key(&secp);
 
     let mut internal_privkey = bip32_privkey.private_key;
     if let Parity::Odd = parity {
@@ -286,14 +257,15 @@ fn fund_wallet_and_send_silent_payment(
 
     let tap_tweak = bdk_chain::bitcoin::TapTweakHash::from_key_and_tweak(x_only_internal, None);
     let (x_only_external, parity) = x_only_internal
-        .add_tweak(&Secp256k1::new(), &tap_tweak.to_scalar())
+        .add_tweak(&secp, &tap_tweak.to_scalar())
         .unwrap();
+    assert!(addr.is_related_to_xonly_pubkey(&x_only_external));
     let mut external_privkey = internal_privkey.add_tweak(&tap_tweak.to_scalar()).unwrap();
     if let Parity::Odd = parity {
         external_privkey = external_privkey.negate();
     }
 
-    let keypair_from_external = Keypair::from_secret_key(&Secp256k1::new(), &external_privkey);
+    let keypair_from_external = Keypair::from_secret_key(&secp, &external_privkey);
 
     // We know for sure the original descriptor was a taproot one
     let input_private_keys = vec![(
@@ -304,28 +276,15 @@ fn fund_wallet_and_send_silent_payment(
     // Assuming the 21 UTxO is the first one in the list
     let outpoints = vec![(txid_21.to_string(), output_idx)];
 
-    let input_hash = calculate_partial_secret(&input_private_keys, &outpoints).unwrap();
-
-    let mut assets = Assets::new();
-    if let Descriptor::Tr(ref tr) = descriptor {
-        assets = assets.add(tr.internal_key().clone());
-    }
-
-    let plan = descriptor
-        .at_derivation_index(spk_i_1)
-        .unwrap()
-        .plan(&assets)
-        .ok()
-        .unwrap();
+    let sum_input_secret_keys_tweaked =
+        calculate_partial_secret(&input_private_keys, &outpoints).unwrap();
 
     let silent_payment_txin = transaction::TxIn {
         previous_output: transaction::OutPoint {
             txid: txid_21,
             vout: output_idx,
         },
-        sequence: plan
-            .relative_timelock
-            .map_or(Sequence::ENABLE_RBF_NO_LOCKTIME, Sequence::from),
+        sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
         ..Default::default()
     };
 
@@ -341,23 +300,22 @@ fn fund_wallet_and_send_silent_payment(
     //////////////////////// Create silent payment output /////////////////////////
     ///////////////////////////////////////////////////////////////////////////////
 
-    let sp_address_sp_output_map =
-        generate_recipient_pubkeys(vec![receiver.get_receiving_address()], input_hash).unwrap();
+    let sp_address_sp_output_map = generate_recipient_pubkeys(
+        vec![receiver.get_receiving_address()],
+        sum_input_secret_keys_tweaked,
+    )
+    .unwrap();
 
     let sp_x_pubkey = sp_address_sp_output_map
         .get(&receiver.get_receiving_address())
         .unwrap()[0]
         .serialize();
     let bitcoin_sp_x_pubkey = bdk_chain::bitcoin::XOnlyPublicKey::from_slice(&sp_x_pubkey).unwrap();
-    let sp_final_address = Address::p2tr(
-        &Secp256k1::new(),
-        bitcoin_sp_x_pubkey,
-        None,
-        bdk_chain::bitcoin::Network::Regtest,
-    );
+    let output_pub_key = TweakedPublicKey::dangerous_assume_tweaked(bitcoin_sp_x_pubkey);
+    let script_pubkey = ScriptBuf::new_p2tr_tweaked(output_pub_key);
     let sp_output = transaction::TxOut {
         value: txout.value - Amount::from_sat(1000),
-        script_pubkey: sp_final_address.into(),
+        script_pubkey,
     };
 
     ///////////////////////////////////////////////////////////////////////////////
