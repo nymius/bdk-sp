@@ -190,11 +190,12 @@ impl XprivSilentPaymentSender {
                     if let Some(ecdh_shared_secret) = ecdh_shared_secret_cache.get(scan) {
                         *ecdh_shared_secret
                     } else {
-                        // NOTE: Should we optimize here using secp256k1::ecdh::shared_secret_point
+                        // NOTE: Should we optimize here using secp256k1::ecdh::shared_secret_point?
+                        // ANSWER: No, shared_secret_point is to get a Secret Key instead of public
+                        // one
                         let partial_secret = Scalar::from(a_sum.mul_tweak(&input_hash).unwrap());
                         let ecdh_shared_secret = scan.mul_tweak(&secp, &partial_secret).unwrap();
                         ecdh_shared_secret_cache.insert(*scan, ecdh_shared_secret);
-                        dbg!(ecdh_shared_secret);
                         ecdh_shared_secret
                     };
 
@@ -220,8 +221,6 @@ impl XprivSilentPaymentSender {
                 let (x_only_pubkey, _) = P_mn.x_only_public_key();
                 let x_only_tweaked = TweakedPublicKey::dangerous_assume_tweaked(x_only_pubkey);
                 let script_pubkey = ScriptBuf::new_p2tr_tweaked(x_only_tweaked);
-
-                println!("rust silent payments spk: {}", script_pubkey);
 
                 // NOTE: Creating the TxOut here is too much?
                 // NOTE: Is better to produce a script pubkey and return a match to the address?
