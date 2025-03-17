@@ -34,7 +34,7 @@ pub struct XprivSilentPaymentSender {
     xpriv: Xpriv,
 }
 
-pub struct SilentPaymentAddress {
+pub struct SilentPaymentCode {
     pub version: u8,
     pub scan: PublicKey,
     pub spend: PublicKey,
@@ -67,7 +67,7 @@ sha256t_hash_newtype! {
     pub(crate) struct SharedSecretHash(_);
 }
 
-impl core::fmt::Display for SilentPaymentAddress {
+impl core::fmt::Display for SilentPaymentCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let hrp = match self.network {
             Network::Bitcoin => self::SP,
@@ -120,7 +120,7 @@ impl XprivSilentPaymentSender {
     pub fn send_to(
         &self,
         inputs: &[(OutPoint, DerivationPath)],
-        outputs: &[(SilentPaymentAddress, Amount)],
+        outputs: &[(SilentPaymentCode, Amount)],
     ) -> Vec<TxOut> {
         let secp = secp256k1::Secp256k1::new();
         let (outpoints, derivation_paths): (Vec<_>, Vec<_>) = inputs.iter().cloned().unzip();
@@ -185,7 +185,7 @@ impl XprivSilentPaymentSender {
 
         outputs
             .iter()
-            .map(|(SilentPaymentAddress { scan, spend, .. }, value)| {
+            .map(|(SilentPaymentCode { scan, spend, .. }, value)| {
                 let shared_secret =
                     if let Some(ecdh_shared_secret) = ecdh_shared_secret_cache.get(scan) {
                         *ecdh_shared_secret

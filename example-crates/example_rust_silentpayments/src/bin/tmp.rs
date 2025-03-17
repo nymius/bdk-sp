@@ -14,7 +14,7 @@ use bdk_testenv::{bitcoincore_rpc::RpcApi, TestEnv};
 use std::fmt;
 use std::{collections::HashMap, error::Error};
 
-use example_rust_silentpayments::{Scanner, SilentPaymentAddress, XprivSilentPaymentSender};
+use example_rust_silentpayments::{Scanner, SilentPaymentCode, XprivSilentPaymentSender};
 
 #[derive(
     Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
@@ -34,7 +34,7 @@ impl fmt::Display for Keychain {
 
 const EXTERNAL_DESCRIPTOR: &str = "tr([3794bb41]tprv8ZgxMBicQKsPdnaCtnmcGNFdbPsYasZC8UJpLchusVmFodRNuKB66PhkiPWrfDhyREzj4vXtT9VfCP8mFFgy1MRo5bL4W8Z9SF241Sx4kmq/86'/1'/0'/0/*)#dg6yxkuh";
 
-fn get_sp_keys() -> (SilentPaymentAddress, SecretKey, SecretKey) {
+fn get_sp_keys() -> (SilentPaymentCode, SecretKey, SecretKey) {
     let secp = secp256k1::Secp256k1::new();
     let silent_payment_string: &str = "sprt1qqw7zfpjcuwvq4zd3d4aealxq3d669s3kcde4wgr3zl5ugxs40twv2qccgvszutt7p796yg4h926kdnty66wxrfew26gu2gk5h5hcg4s2jqyascfz";
     let spend_privkey = SecretKey::from_slice(
@@ -50,7 +50,7 @@ fn get_sp_keys() -> (SilentPaymentAddress, SecretKey, SecretKey) {
     )
     .unwrap();
 
-    let sp_code = SilentPaymentAddress {
+    let sp_code = SilentPaymentCode {
         version: 0,
         scan: scan_privkey.public_key(&secp),
         spend: spend_privkey.public_key(&secp),
