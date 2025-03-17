@@ -17,8 +17,7 @@ use std::{collections::HashMap, error::Error};
 use example_rust_silentpayments::{Scanner, SilentPaymentAddress, XprivSilentPaymentSender};
 
 #[derive(
-    Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, serde::Deserialize, serde::Serialize,
-)]
+    Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
 pub enum Keychain {
     External,
     Internal,
