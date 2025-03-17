@@ -432,26 +432,30 @@ impl Scanner {
             PublicKey::from_slice(&ss_bytes).expect("guaranteed to be a point on the curve")
         };
 
-        let outputs_to_check_even = tx.output.iter().enumerate().filter_map(|(i, txout)| {
-            let op = OutPoint {
-                vout: i as u32,
-                txid: tx.compute_txid(),
-            };
+        let mut outputs_to_check = {
+            let outputs_to_check_even = tx.output.iter().enumerate().filter_map(|(i, txout)| {
+                let op = OutPoint {
+                    vout: i as u32,
+                    txid: tx.compute_txid(),
+                };
 
-            if txout.script_pubkey.is_p2tr() {
-                let xonly_pk =
-                    XOnlyPublicKey::from_slice(&txout.script_pubkey.as_bytes()[2..]).ok()?;
+                if txout.script_pubkey.is_p2tr() {
+                    let xonly_pk =
+                        XOnlyPublicKey::from_slice(&txout.script_pubkey.as_bytes()[2..]).ok()?;
 
-                let pk = xonly_pk.public_key(Parity::Even);
-                Some((pk, op))
-            } else {
-                None
-            }
-        });
-        let outputs_to_check_odd = outputs_to_check_even
-            .clone()
-            .map(|(pk, op)| (pk.negate(&secp), op));
-        let mut outputs_to_check = outputs_to_check_even.chain(outputs_to_check_odd);
+                    let pk = xonly_pk.public_key(Parity::Even);
+                    Some((pk, op))
+                } else {
+                    None
+                }
+            });
+
+            let outputs_to_check_odd = outputs_to_check_even
+                .clone()
+                .map(|(pk, op)| (pk.negate(&secp), op));
+
+            outputs_to_check_even.chain(outputs_to_check_odd)
+        };
 
         let mut sp_outputs_found = <Vec<SpOutput>>::new();
         let mut k = 0_u32;
