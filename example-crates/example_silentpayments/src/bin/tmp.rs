@@ -14,7 +14,7 @@ use bdk_testenv::{bitcoincore_rpc::RpcApi, TestEnv};
 use std::fmt;
 use std::{collections::HashMap, error::Error};
 
-use example_rust_silentpayments::{Scanner, SilentPaymentCode, XprivSilentPaymentSender};
+use example_silentpayments::{Scanner, SilentPaymentCode, XprivSilentPaymentSender};
 
 #[derive(
     Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]

@@ -1,5 +1,5 @@
 [package]
-name = "example_rust_silentpayments"
+name = "example_silentpayments"
 version = "0.1.0"
 edition = "2021"
 
