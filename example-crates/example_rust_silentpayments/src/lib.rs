@@ -1,24 +1,20 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-use bdk_chain::{
-    bitcoin::{
-        self,
-        bech32::{
-            primitives::{
-                decode::{AsciiToFe32Iter, CheckedHrpstring},
-                iter::{ByteIterExt, Fe32IterExt},
-                Bech32m,
-            },
-            Fe32, Hrp,
+use bdk_chain::bitcoin::{
+    self,
+    bech32::{
+        primitives::{
+            iter::{ByteIterExt, Fe32IterExt},
+            Bech32m,
         },
-        bip32::{DerivationPath, Xpriv},
-        hashes::{sha256t_hash_newtype, Hash, HashEngine},
-        key::{Parity, TweakedPublicKey},
-        secp256k1::{self, PublicKey, Scalar, SecretKey},
-        Amount, CompressedPublicKey, Network, NetworkKind, OutPoint, PubkeyHash, ScriptBuf,
-        Transaction, TxIn, TxOut, XOnlyPublicKey,
+        Fe32, Hrp,
     },
-    miniscript::psbt::SighashError,
+    bip32::{DerivationPath, Xpriv},
+    hashes::{sha256t_hash_newtype, Hash, HashEngine},
+    key::{Parity, TweakedPublicKey},
+    secp256k1::{self, ecdh::shared_secret_point, PublicKey, Scalar, SecretKey},
+    Amount, CompressedPublicKey, Network, OutPoint, PubkeyHash, ScriptBuf, Transaction, TxIn,
+    TxOut, XOnlyPublicKey,
 };
 
 /// Human readable prefix for encoding bitcoin Mainnet silent payment codes
@@ -181,7 +177,7 @@ impl XprivSilentPaymentSender {
         };
 
         // Cache to avoid recomputing ecdh shared secret for each B_scan
-        let mut dh_shared_secret_cache = <HashMap<PublicKey, PublicKey>>::new();
+        let mut ecdh_shared_secret_cache = <HashMap<PublicKey, PublicKey>>::new();
 
         #[allow(non_snake_case)]
         // Cache to know the amount of B_m already added to the account
@@ -190,14 +186,17 @@ impl XprivSilentPaymentSender {
         outputs
             .iter()
             .map(|(SilentPaymentAddress { scan, spend, .. }, value)| {
-                let shared_secret = if let Some(dh_shared_secret) = dh_shared_secret_cache.get(scan)
-                {
-                    *dh_shared_secret
-                } else {
-                    let dh_shared_secret = scan.mul_tweak(&secp, &input_hash).unwrap();
-                    dh_shared_secret_cache.insert(*scan, dh_shared_secret);
-                    dh_shared_secret
-                };
+                let shared_secret =
+                    if let Some(ecdh_shared_secret) = ecdh_shared_secret_cache.get(scan) {
+                        *ecdh_shared_secret
+                    } else {
+                        // NOTE: Should we optimize here using secp256k1::ecdh::shared_secret_point
+                        let partial_secret = Scalar::from(a_sum.mul_tweak(&input_hash).unwrap());
+                        let ecdh_shared_secret = scan.mul_tweak(&secp, &partial_secret).unwrap();
+                        ecdh_shared_secret_cache.insert(*scan, ecdh_shared_secret);
+                        dbg!(ecdh_shared_secret);
+                        ecdh_shared_secret
+                    };
 
                 let k = if let Some(count) = B_m_count_cache.get(spend) {
                     count + 1
@@ -221,6 +220,8 @@ impl XprivSilentPaymentSender {
                 let (x_only_pubkey, _) = P_mn.x_only_public_key();
                 let x_only_tweaked = TweakedPublicKey::dangerous_assume_tweaked(x_only_pubkey);
                 let script_pubkey = ScriptBuf::new_p2tr_tweaked(x_only_tweaked);
+
+                println!("rust silent payments spk: {}", script_pubkey);
 
                 // NOTE: Creating the TxOut here is too much?
                 // NOTE: Is better to produce a script pubkey and return a match to the address?
@@ -257,18 +258,6 @@ pub enum InputsForSharedSecretDerivation {
     P2PKH,
 }
 
-pub fn is_wrapped_p2sh_or_p2wpkh(txin: TxIn, script_pubkey: ScriptBuf) -> bool {
-    !txin.witness.is_empty()
-        && (!txin.script_sig.is_empty()
-            && script_pubkey.is_p2sh()
-            && txin
-                .script_sig
-                .redeem_script()
-                .filter(|script| script.is_p2wpkh())
-                .is_some())
-        || (txin.script_sig.is_empty() && script_pubkey.is_p2wpkh())
-}
-
 pub fn classify_input(
     txin: &TxIn,
     script_pubkey: &ScriptBuf,
@@ -303,13 +292,15 @@ pub fn classify_input(
 
 pub fn get_pubkey_from_input(
     txin: TxIn,
-    script_pubkey: ScriptBuf,
+    script_pubkey: &ScriptBuf,
 ) -> Result<Option<PublicKey>, PubKeyExtractionError> {
     use InputsForSharedSecretDerivation::*;
-    match classify_input(&txin, &script_pubkey)? {
+    match classify_input(&txin, script_pubkey)? {
         WrappedSegwit | P2WPKH => txin
             .witness
             .last()
+            // NOTE: This is a way to ensure all used keys are compressed, not compressed keys are
+            // not considered.
             .map(CompressedPublicKey::from_slice)
             .transpose()?
             .map_or(Err(PubKeyExtractionError::InvalidInput("")), |pubkey| {
@@ -325,6 +316,7 @@ pub fn get_pubkey_from_input(
                 Ok(None)
             } else {
                 Ok(Some(
+                    // NOTE: Only x only even taproot keys should be considered
                     XOnlyPublicKey::from_slice(&script_pubkey.as_bytes()[2..34])?
                         .public_key(Parity::Even),
                 ))
@@ -334,8 +326,11 @@ pub fn get_pubkey_from_input(
             let compressed_pubkey = txin
                 .script_sig
                 .into_bytes()
+                // Is there a compressed pubkey somewhere?
                 .windows(33)
                 .last()
+                // NOTE: This is a way to ensure all used keys are compressed, not compressed keys are
+                // not considered.
                 .map(CompressedPublicKey::from_slice)
                 .transpose()?;
 
@@ -351,9 +346,11 @@ pub fn get_pubkey_from_input(
 
 pub struct Scanner {
     scan_sk: SecretKey,
+    spend_pk: PublicKey,
     label_lookup: HashMap<PublicKey, (Scalar, u32)>,
 }
 
+#[derive(Debug)]
 pub struct SpOutput {
     pub outpoint: OutPoint,
     pub tweak: Scalar,
@@ -362,10 +359,148 @@ pub struct SpOutput {
 }
 
 impl Scanner {
+    pub fn new(
+        scan_sk: SecretKey,
+        spend_pk: PublicKey,
+        label_lookup: HashMap<PublicKey, (Scalar, u32)>,
+    ) -> Self {
+        Scanner {
+            scan_sk,
+            spend_pk,
+            label_lookup,
+        }
+    }
+
     pub fn scan_tx(&self, tx: &Transaction, prevouts: &[TxOut]) -> Vec<SpOutput> {
-        let secp = secp256k1::Secp256k1::new();
         assert_eq!(tx.input.len(), prevouts.len());
 
-        todo!()
+        let secp = secp256k1::Secp256k1::new();
+
+        let input_pubkeys: Vec<PublicKey> = tx
+            .input
+            .clone()
+            .into_iter()
+            .zip(prevouts)
+            .map(|(txin, prevout)| {
+                let prevout_spk = prevout.script_pubkey.clone();
+                get_pubkey_from_input(txin, &prevout_spk).unwrap_or_default()
+            })
+            .filter(|x| x.is_some())
+            .flatten()
+            .collect();
+
+        let input_pubkey_refs: Vec<&PublicKey> = input_pubkeys.iter().collect();
+
+        #[allow(non_snake_case)]
+        // NOTE: Remember to properly handle all these `unwrap`s
+        let A_sum = PublicKey::combine_keys(&input_pubkey_refs).unwrap();
+        let smallest_outpoint = tx
+            .input
+            .iter()
+            .map(|txin| {
+                let outpoint = txin.previous_output;
+                let mut outpoint_bytes = [0u8; 36];
+                outpoint_bytes[..32].copy_from_slice(outpoint.txid.to_raw_hash().as_byte_array());
+                outpoint_bytes[32..36].copy_from_slice(&outpoint.vout.to_le_bytes());
+                outpoint_bytes
+            })
+            .min()
+            .unwrap();
+
+        let input_hash = {
+            let mut eng = InputsHash::engine();
+            eng.input(&smallest_outpoint);
+            eng.input(&A_sum.serialize());
+            let hash = InputsHash::from_engine(eng);
+            // NOTE: Why big endian bytes???
+            Scalar::from_be_bytes(hash.to_byte_array())
+                .expect("hash value greater than curve order")
+        };
+
+        // NOTE: Remember to properly handle all these `unwrap`s
+        let partial_ecdh_shared_secret = A_sum.mul_tweak(&secp, &input_hash).unwrap();
+
+        let ecdh_shared_secret = {
+            let mut ss_bytes = [0u8; 65];
+            ss_bytes[0] = 0x04;
+
+            // Using `shared_secret_point` to ensure the multiplication is constant time
+            ss_bytes[1..].copy_from_slice(&shared_secret_point(
+                &partial_ecdh_shared_secret,
+                &self.scan_sk,
+            ));
+
+            PublicKey::from_slice(&ss_bytes).expect("guaranteed to be a point on the curve")
+        };
+
+        let outputs_to_check_even = tx.output.iter().enumerate().filter_map(|(i, txout)| {
+            let op = OutPoint {
+                vout: i as u32,
+                txid: tx.compute_txid(),
+            };
+
+            if txout.script_pubkey.is_p2tr() {
+                let xonly_pk =
+                    XOnlyPublicKey::from_slice(&txout.script_pubkey.as_bytes()[2..]).ok()?;
+
+                let pk = xonly_pk.public_key(Parity::Even);
+                Some((pk, op))
+            } else {
+                None
+            }
+        });
+        let outputs_to_check_odd = outputs_to_check_even
+            .clone()
+            .map(|(pk, op)| (pk.negate(&secp), op));
+        let mut outputs_to_check = outputs_to_check_even.chain(outputs_to_check_odd);
+
+        let mut sp_outputs_found = <Vec<SpOutput>>::new();
+        let mut k = 0_u32;
+        let mut loop_count = 0_u32;
+
+        while k == loop_count {
+            let t_k = {
+                let mut eng = SharedSecretHash::engine();
+                eng.input(&ecdh_shared_secret.serialize());
+                eng.input(&k.to_le_bytes());
+                let hash = SharedSecretHash::from_engine(eng);
+                SecretKey::from_slice(&hash.to_byte_array()).unwrap()
+            };
+
+            #[allow(non_snake_case)]
+            let T_k = t_k.public_key(&secp);
+
+            #[allow(non_snake_case)]
+            let P_k = self.spend_pk.combine(&T_k).unwrap();
+
+            if let Some((pk, outpoint)) = outputs_to_check.find(|(pk, _)| P_k == *pk) {
+                k += 1;
+                sp_outputs_found.push(SpOutput {
+                    outpoint,
+                    tweak: t_k.into(),
+                    public_key: XOnlyPublicKey::from(pk),
+                    label: None,
+                });
+            }
+
+            if let Some(sp_output) = outputs_to_check.find_map(|(pk, outpoint)| {
+                let labeled_pk = pk.combine(&P_k.negate(&secp)).unwrap();
+                self.label_lookup
+                    .get(&labeled_pk)
+                    .map(|(tweak, label)| SpOutput {
+                        outpoint,
+                        tweak: *tweak,
+                        public_key: XOnlyPublicKey::from(pk),
+                        label: Some(*label),
+                    })
+            }) {
+                k += 1;
+                sp_outputs_found.push(sp_output);
+            }
+
+            loop_count += 1;
+        }
+
+        sp_outputs_found
     }
 }

@@ -13,25 +13,18 @@ use bdk_testenv::{bitcoincore_rpc::RpcApi, TestEnv};
 use std::{collections::BTreeMap, fmt};
 use std::{collections::HashMap, error::Error};
 
-use example_rust_silentpayments::{SilentPaymentAddress, XprivSilentPaymentSender};
+use example_rust_silentpayments::{
+    Scanner, SilentPaymentAddress, SpOutput, XprivSilentPaymentSender,
+};
+use silentpayments::secp256k1 as sp_secp;
 use silentpayments::utils::receiving::{
     calculate_ecdh_shared_secret, calculate_tweak_data, get_pubkey_from_input,
 };
-use silentpayments::secp256k1 as sp_secp;
 use silentpayments::utils::sending::calculate_partial_secret;
 use silentpayments::{
     receiving::{Label, Receiver},
     sending::generate_recipient_pubkeys,
 };
-// use silentpayments::secp256k1 as sp_secp;
-// use silentpayments::utils::receiving::{
-//     calculate_ecdh_shared_secret, calculate_tweak_data, get_pubkey_from_input,
-// };
-// use silentpayments::utils::sending::calculate_partial_secret;
-// use silentpayments::{
-//     receiving::{Label, Receiver},
-//     sending::generate_recipient_pubkeys,
-// };
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -68,7 +61,14 @@ const EXTERNAL_DESCRIPTOR: &str = "tr([3794bb41]tprv8ZgxMBicQKsPdnaCtnmcGNFdbPsY
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-fn get_sp_keys() -> (SilentPaymentAddress, SecretKey, SecretKey) {
+fn get_sp_keys() -> (
+    Receiver,
+    SilentPaymentAddress,
+    SecretKey,
+    SecretKey,
+    sp_secp::SecretKey,
+    sp_secp::SecretKey,
+) {
     let secp = secp256k1::Secp256k1::new();
     let silent_payment_string: &str = "sprt1qqw7zfpjcuwvq4zd3d4aealxq3d669s3kcde4wgr3zl5ugxs40twv2qccgvszutt7p796yg4h926kdnty66wxrfew26gu2gk5h5hcg4s2jqyascfz";
     let spend_privkey = SecretKey::from_slice(
@@ -91,26 +91,36 @@ fn get_sp_keys() -> (SilentPaymentAddress, SecretKey, SecretKey) {
         network: Network::Regtest,
     };
 
+    let rust_sp_scan_privkey = sp_secp::SecretKey::from_slice(scan_privkey.as_ref()).unwrap();
+    let rust_sp_spend_privkey = sp_secp::SecretKey::from_slice(spend_privkey.as_ref()).unwrap();
+
     // Create a change label for the wallet
-    // let change_label = Label::new(spend_privkey, 0);
-
-    // Create a new Receiver object with the private and public keys, along with the change label
-    // let receiver = Receiver::new(
-    //     0,
-    //     scan_privkey.public_key(&sp_secp_1),
-    //     spend_privkey.public_key(&sp_secp_1),
-    //     change_label,
-    //     silentpayments::Network::Regtest,
-    // )
-    // .unwrap();
-
-    // println!("Receiver address: {}", receiver.get_receiving_address());
-    assert_eq!(
-         format!("{}", sp_addr),
-         silent_payment_string
+    let change_label = Label::new(
+        sp_secp::SecretKey::from_slice(scan_privkey.as_ref()).unwrap(),
+        0,
     );
 
-    (sp_addr, spend_privkey, scan_privkey)
+    // Create a new Receiver object with the private and public keys, along with the change label
+    let receiver = Receiver::new(
+        0,
+        sp_secp::PublicKey::from_slice(&scan_privkey.public_key(&secp).serialize()).unwrap(),
+        sp_secp::PublicKey::from_slice(&spend_privkey.public_key(&secp).serialize()).unwrap(),
+        change_label,
+        silentpayments::Network::Regtest,
+    )
+    .unwrap();
+
+    println!("Receiver address: {}", receiver.get_receiving_address());
+    assert_eq!(format!("{}", sp_addr), silent_payment_string);
+
+    (
+        receiver,
+        sp_addr,
+        spend_privkey,
+        scan_privkey,
+        rust_sp_scan_privkey,
+        rust_sp_spend_privkey,
+    )
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -120,77 +130,97 @@ fn main() -> Result<(), Box<dyn Error>> {
     let tx_to_scan = rpc_client
         .get_raw_transaction(&txid, Some(&block_hash))
         .unwrap();
-    //scan_block_for_silent_payment_tx(txout, tx_to_scan).unwrap();
+    scan_block_for_silent_payment_tx(txout.clone(), tx_to_scan.clone()).unwrap();
+
+    let (_, sp_addr, spend_sk, scan_sk, _, _) = get_sp_keys();
+
+    let scanner = Scanner::new(scan_sk, sp_addr.spend, <HashMap<_, _>>::new());
+    for SpOutput {
+        tweak, public_key, ..
+    } in scanner.scan_tx(&tx_to_scan, &[txout])
+    {
+        let output_sk = spend_sk.add_tweak(&tweak).unwrap();
+        // Check the output is spendable
+        assert_eq!(output_sk.x_only_public_key(&Secp256k1::new()).0, public_key);
+
+        println!("output found and spendable!");
+    }
+
     Ok(())
 }
 
-//  fn scan_block_for_silent_payment_tx(
-//      prevout: transaction::TxOut,
-//      tx: transaction::Transaction,
-//  ) -> Result<(), Box<dyn Error>> {
-//      #[allow(unused)]
-//      let secp = Secp256k1::new();
+fn scan_block_for_silent_payment_tx(
+    prevout: transaction::TxOut,
+    tx: transaction::Transaction,
+) -> Result<(), Box<dyn Error>> {
+    #[allow(unused)]
+    let secp = Secp256k1::new();
 
-//      let (receiver, spend_privkey, scan_privkey) = get_sp_keys();
+    let (receiver, _, _, _, scan_privkey, spend_privkey) = get_sp_keys();
 
-//      let txin = tx.input.first().unwrap();
-//      let txin_outpoint = txin.previous_output;
-//      println!("funding outpoint: {}", txin_outpoint);
-//      let script_sig = txin.script_sig.clone();
-//      let txwitness = txin.witness.clone();
-//      let script_pubkey = prevout.script_pubkey.clone();
+    let txin = tx.input.first().unwrap();
+    let txin_outpoint = txin.previous_output;
+    println!("funding outpoint: {}", txin_outpoint);
+    let script_sig = txin.script_sig.clone();
+    let txwitness = txin.witness.clone();
+    let script_pubkey = prevout.script_pubkey.clone();
 
-//      let txin_pubkey = get_pubkey_from_input(
-//          script_sig.as_bytes(),
-//          &txwitness.to_vec(),
-//          script_pubkey.as_bytes(),
-//      )
-//      .unwrap()
-//      .unwrap();
-//      println!("sp input pubkey: {}", txin_pubkey);
-//      let pubkeys = vec![&txin_pubkey];
+    let txin_pubkey = get_pubkey_from_input(
+        script_sig.as_bytes(),
+        &txwitness.to_vec(),
+        script_pubkey.as_bytes(),
+    )
+    .unwrap()
+    .unwrap();
+    println!("sp input pubkey: {}", txin_pubkey);
+    let pubkeys = vec![&txin_pubkey];
 
-//      let outpoint_data = vec![(txin_outpoint.txid.to_string(), txin_outpoint.vout)];
-//      let tweak_data = calculate_tweak_data(&pubkeys, &outpoint_data).unwrap();
-//      let ecdh_secret = calculate_ecdh_shared_secret(&tweak_data, &scan_privkey);
+    let outpoint_data = vec![(txin_outpoint.txid.to_string(), txin_outpoint.vout)];
+    let tweak_data = calculate_tweak_data(&pubkeys, &outpoint_data).unwrap();
+    let ecdh_secret = calculate_ecdh_shared_secret(&tweak_data, &scan_privkey);
 
-//      let output_pubkeys = tx
-//          .output
-//          .iter()
-//          .enumerate()
-//          .filter_map(|(i, txout)| {
-//              let op = OutPoint {
-//                  vout: i as u32,
-//                  txid: tx.compute_txid(),
-//              };
-//              let xonly_pk =
-//                  sp_secp::XOnlyPublicKey::from_slice(&txout.script_pubkey.as_bytes()[2..]).ok()?;
-//              Some((xonly_pk, op))
-//          })
-//          .collect::<HashMap<_, _>>();
-//      let found = receiver
-//          .scan_transaction(&ecdh_secret, output_pubkeys.keys().copied().collect())
-//          .unwrap()
-//          .remove(&None)
-//          .unwrap();
+    let output_pubkeys = tx
+        .output
+        .iter()
+        .enumerate()
+        .filter_map(|(i, txout)| {
+            let op = OutPoint {
+                vout: i as u32,
+                txid: tx.compute_txid(),
+            };
+            let xonly_pk =
+                sp_secp::XOnlyPublicKey::from_slice(&txout.script_pubkey.as_bytes()[2..]).ok()?;
+            Some((xonly_pk, op))
+        })
+        .collect::<HashMap<_, _>>();
+    let found = receiver
+        .scan_transaction(&ecdh_secret, output_pubkeys.keys().copied().collect())
+        .unwrap()
+        .remove(&None)
+        .unwrap();
 
-//      let owned_outputs = found
-//          .into_iter()
-//          .map(|(pk, tweak)| (output_pubkeys.get(&pk).unwrap(), (pk, tweak)))
-//          .collect::<BTreeMap<_, _>>();
+    let owned_outputs = found
+        .into_iter()
+        .map(|(pk, tweak)| (output_pubkeys.get(&pk).unwrap(), (pk, tweak)))
+        .collect::<BTreeMap<_, _>>();
 
-//      for (_op, (pk, tweak)) in owned_outputs {
-//          let output_sk = spend_privkey.add_tweak(&tweak).unwrap();
-//          assert_eq!(
-//              sp_secp::PublicKey::from_secret_key(&sp_secp::Secp256k1::new(), &output_sk)
-//                  .x_only_public_key()
-//                  .0,
-//              pk,
-//          );
-//      }
+    for (op, (pk, tweak)) in owned_outputs {
+        dbg!(op);
+        dbg!(pk);
+        dbg!(tweak);
+        let output_sk = spend_privkey.add_tweak(&tweak).unwrap();
+        assert_eq!(
+            sp_secp::PublicKey::from_secret_key(&sp_secp::Secp256k1::new(), &output_sk)
+                .x_only_public_key()
+                .0,
+            pk,
+        );
 
-//      Ok(())
-//  }
+        println!("output found and spendable!");
+    }
+
+    Ok(())
+}
 
 fn fund_wallet_and_send_silent_payment(
     rpc_client: &impl RpcApi,
@@ -264,7 +294,7 @@ fn fund_wallet_and_send_silent_payment(
         .get_raw_transaction(&txid_21, Some(&addr_block_hash))
         .unwrap();
 
-    dbg!("silent payment input txid:", txid_21);
+    println!("silent payment input txid: {}", txid_21);
     let (txout, output_idx) = tx_21
         .output
         .iter()
@@ -303,7 +333,7 @@ fn fund_wallet_and_send_silent_payment(
 
     let keypair_from_external = Keypair::from_secret_key(&secp, &external_privkey);
 
-    let (sp_address, ..) = get_sp_keys();
+    let (_, sp_address, ..) = get_sp_keys();
 
     let txouts = sp_sender.send_to(
         &[(
@@ -316,17 +346,16 @@ fn fund_wallet_and_send_silent_payment(
         &[(sp_address, txout.value - Amount::from_sat(1000))],
     );
 
-    // // We know for sure the original descriptor was a taproot one
-    // let input_private_keys = vec![(
-    //     sp_secp::SecretKey::from_slice(&external_privkey.secret_bytes()).unwrap(),
-    //     true,
-    // )];
+    // We know for sure the original descriptor was a taproot one
+    let input_private_keys = [(
+        sp_secp::SecretKey::from_slice(&external_privkey.secret_bytes()).unwrap(),
+        true,
+    )];
 
-    // // Assuming the 21 UTxO is the first one in the list
-    // let outpoints = vec![(txid_21.to_string(), output_idx)];
+    let outpoints = vec![(txid_21.to_string(), output_idx)];
 
-    // let sum_input_secret_keys_tweaked =
-    //     calculate_partial_secret(&input_private_keys, &outpoints).unwrap();
+    let sum_input_secret_keys_tweaked =
+        calculate_partial_secret(&input_private_keys, &outpoints).unwrap();
 
     let silent_payment_txin = transaction::TxIn {
         previous_output: transaction::OutPoint {
@@ -343,29 +372,30 @@ fn fund_wallet_and_send_silent_payment(
     // /////////////////////////// Get silent payment data ///////////////////////////
     // ///////////////////////////////////////////////////////////////////////////////
 
-    // let (receiver, _, _) = get_sp_keys();
+    let (receiver, ..) = get_sp_keys();
 
     // ///////////////////////////////////////////////////////////////////////////////
     // //////////////////////// Create silent payment output /////////////////////////
     // ///////////////////////////////////////////////////////////////////////////////
 
-    // let sp_address_sp_output_map = generate_recipient_pubkeys(
-    //     vec![receiver.get_receiving_address()],
-    //     sum_input_secret_keys_tweaked,
-    // )
-    // .unwrap();
+    let sp_address_sp_output_map = generate_recipient_pubkeys(
+        vec![receiver.get_receiving_address()],
+        sum_input_secret_keys_tweaked,
+    )
+    .unwrap();
 
-    // let sp_x_pubkey = sp_address_sp_output_map
-    //     .get(&receiver.get_receiving_address())
-    //     .unwrap()[0]
-    //     .serialize();
-    // let bitcoin_sp_x_pubkey = bdk_chain::bitcoin::XOnlyPublicKey::from_slice(&sp_x_pubkey).unwrap();
-    // let output_pub_key = TweakedPublicKey::dangerous_assume_tweaked(bitcoin_sp_x_pubkey);
-    // let script_pubkey = ScriptBuf::new_p2tr_tweaked(output_pub_key);
-    // let sp_output = transaction::TxOut {
-    //     value: txout.value - Amount::from_sat(1000),
-    //     script_pubkey,
-    // };
+    let sp_x_pubkey = sp_address_sp_output_map
+        .get(&receiver.get_receiving_address())
+        .unwrap()[0]
+        .serialize();
+    let bitcoin_sp_x_pubkey = bdk_chain::bitcoin::XOnlyPublicKey::from_slice(&sp_x_pubkey).unwrap();
+    let output_pub_key = TweakedPublicKey::dangerous_assume_tweaked(bitcoin_sp_x_pubkey);
+    let script_pubkey = ScriptBuf::new_p2tr_tweaked(output_pub_key);
+    println!("rust silent payments spk: {}", script_pubkey);
+    //let sp_output = transaction::TxOut {
+    //value: txout.value - Amount::from_sat(1000),
+    //script_pubkey,
+    //};
 
     ///////////////////////////////////////////////////////////////////////////////
     ////////////////////////////// Create Tx /////////////////////////////////////
