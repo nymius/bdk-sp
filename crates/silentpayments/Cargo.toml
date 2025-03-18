@@ -1,0 +1,7 @@
+[package]
+name = "bdk_silentpayments"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bitcoin = { version = "0.32.0", default-features = false }
