@@ -77,24 +77,28 @@ impl XprivSilentPaymentSender {
                 outpoint_bytes
             })
             .min()
-            .unwrap();
+            .expect("cannot create silent payment script pubkey without outpoints");
 
         let mut derived_secret_keys = <Vec<SecretKey>>::new();
         for derivation_path in derivation_paths {
             let bip32_privkey = self.xpriv.derive_priv(&secp, &derivation_path)?;
-            let (x_only_internal, parity) = bip32_privkey.private_key.x_only_public_key(&secp);
-
             let mut internal_privkey = bip32_privkey.private_key;
+            let (x_only_internal, parity) = internal_privkey.x_only_public_key(&secp);
+
             if let Parity::Odd = parity {
                 internal_privkey = internal_privkey.negate();
             }
 
             let tap_tweak = TapTweakHash::from_key_and_tweak(x_only_internal, None);
 
+            // NOTE: We are just interested in the parity of the external public key, to properly produce
+            // the external private key
             let (_x_only_external, parity) =
-                x_only_internal.add_tweak(&secp, &tap_tweak.to_scalar())?;
+                x_only_internal.add_tweak(&secp, &tap_tweak.to_scalar())
+                .expect("computationally unreachable: can only fail if tap_tweak = -internal_privkey (DLog of x_only_internal), but tap_tweak is the output of a hash function");
 
-            let mut external_privkey = internal_privkey.add_tweak(&tap_tweak.to_scalar())?;
+            let mut external_privkey = internal_privkey.add_tweak(&tap_tweak.to_scalar())
+                .expect("computationally unreachable: can only fail if tap_tweak = -internal_privkey, but tap_tweak is the output of a hash function");
 
             if let Parity::Odd = parity {
                 external_privkey = external_privkey.negate();
@@ -103,10 +107,13 @@ impl XprivSilentPaymentSender {
             derived_secret_keys.push(external_privkey);
         }
 
+        // Use first derived_secret key to initialize a_sum
         let mut a_sum = derived_secret_keys[0];
-
+        // Then skip first element to avoid reuse
         for derived_secret_key in derived_secret_keys.into_iter().skip(1) {
-            a_sum = a_sum.add_tweak(&derived_secret_key.into())?;
+            a_sum = a_sum
+                .add_tweak(&derived_secret_key.into())
+                .expect("computationally unreachable");
         }
 
         #[allow(non_snake_case)]
@@ -117,6 +124,7 @@ impl XprivSilentPaymentSender {
             eng.input(&smallest_outpoint);
             eng.input(&A_sum.serialize());
             let hash = InputsHash::from_engine(eng);
+            // NOTE: Why big endian bytes??? Doesn't matter. Look at: https://github.com/rust-bitcoin/rust-bitcoin/issues/1896
             Scalar::from_be_bytes(hash.to_byte_array())
                 .expect("hash value greater than curve order")
         };
@@ -137,8 +145,10 @@ impl XprivSilentPaymentSender {
                 // NOTE: Should we optimize here using secp256k1::ecdh::shared_secret_point?
                 // ANSWER: No, shared_secret_point is to get a Secret Key instead of public
                 // one
-                let partial_secret = a_sum.mul_tweak(&input_hash)?;
-                let ecdh_shared_secret = scan.mul_tweak(&secp, &partial_secret.into())?;
+                let partial_secret = a_sum.mul_tweak(&input_hash)
+                    .expect("computationally unreachable: can only fail if a_sum is invalid or input_hash is");
+                let ecdh_shared_secret = scan.mul_tweak(&secp, &partial_secret.into())
+                    .expect("computationally unreachable: can only fail scan public key is invalid in the first place or partial_secret is");
                 ecdh_shared_secret_cache.insert(*scan, ecdh_shared_secret);
                 ecdh_shared_secret
             };
@@ -155,21 +165,21 @@ impl XprivSilentPaymentSender {
                 eng.input(&shared_secret.serialize());
                 eng.input(&k.to_le_bytes());
                 let hash = SharedSecretHash::from_engine(eng);
-                let t_k = SecretKey::from_slice(&hash.to_byte_array())?;
+                let t_k = SecretKey::from_slice(&hash.to_byte_array()).expect(
+                    "computationally unreachable: only if hash value greater than curve order",
+                );
                 t_k.public_key(&secp)
             };
 
             #[allow(non_snake_case)]
-            let P_mn = spend.combine(&T_k)?;
-            // NOTE: Should we care about parity here? Ask @LLFourn
+            let P_mn = spend.combine(&T_k)
+                .expect("computationally unreachable: can only fail if t_k = -spend_sk (DLog of spend), but t_k is the output of a hash function");
+            // NOTE: Should we care about parity here? No. Look at: https://gist.github.com/sipa/c9299811fb1f56abdcd2451a8a078d20
             let (x_only_pubkey, _) = P_mn.x_only_public_key();
             let x_only_tweaked = TweakedPublicKey::dangerous_assume_tweaked(x_only_pubkey);
 
-            // NOTE: Creating the TxOut here is too much?
-            // NOTE: Is better to produce a script pubkey and return a match to the address?
-            // Does that matter after creating the TxOuts?
-            // NOTE: We need a way to match roughly the silent payment address with the amount
-            // we wanted to send to them.
+            // NOTE: we rely on the input/output ordering to match silent payment codes with their
+            // belonging script pubkey
             script_pubkeys.push(ScriptBuf::new_p2tr_tweaked(x_only_tweaked));
         }
 

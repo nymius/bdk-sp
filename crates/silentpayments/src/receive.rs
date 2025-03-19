@@ -182,6 +182,8 @@ impl Scanner {
         let input_pubkey_refs: Vec<&PublicKey> = input_pubkeys.iter().collect();
 
         #[allow(non_snake_case)]
+        // NOTE: cannot ignore malicious crafting of transaction with input public keys that cancel
+        // themselves
         let A_sum = PublicKey::combine_keys(&input_pubkey_refs)?;
         let smallest_outpoint = tx
             .input
@@ -194,14 +196,14 @@ impl Scanner {
                 outpoint_bytes
             })
             .min()
-            .unwrap();
+            .expect("transaction should have inputs");
 
         let input_hash = {
             let mut eng = InputsHash::engine();
             eng.input(&smallest_outpoint);
             eng.input(&A_sum.serialize());
             let hash = InputsHash::from_engine(eng);
-            // NOTE: Why big endian bytes???
+            // NOTE: Why big endian bytes??? Doesn't matter. Look at: https://github.com/rust-bitcoin/rust-bitcoin/issues/1896
             Scalar::from_be_bytes(hash.to_byte_array())
                 .expect("hash value greater than curve order")
         };
@@ -213,6 +215,7 @@ impl Scanner {
             ss_bytes[0] = 0x04;
 
             // Using `shared_secret_point` to ensure the multiplication is constant time
+            // TODO: Update to use x_only_shared_secret
             ss_bytes[1..].copy_from_slice(&shared_secret_point(
                 &partial_ecdh_shared_secret,
                 &self.scan_sk,
@@ -258,14 +261,17 @@ impl Scanner {
                 eng.input(&ecdh_shared_secret.serialize());
                 eng.input(&k.to_le_bytes());
                 let hash = SharedSecretHash::from_engine(eng);
-                SecretKey::from_slice(&hash.to_byte_array())?
+                SecretKey::from_slice(&hash.to_byte_array()).expect(
+                    "computationally unreachable: only if hash value greater than curve order",
+                )
             };
 
             #[allow(non_snake_case)]
             let T_k = t_k.public_key(&secp);
 
             #[allow(non_snake_case)]
-            let P_k = self.spend_pk.combine(&T_k)?;
+            let P_k = self.spend_pk.combine(&T_k)
+                .expect("computationally unreachable: can only fail if t_k = -spend_sk (DLog of spend_pk), but t_k is the output of a hash function");
 
             if let Some((pk, outpoint)) = outputs_to_check.iter().find(|(pk, _)| P_k == *pk) {
                 k += 1;
