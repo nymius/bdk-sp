@@ -1,4 +1,5 @@
 use bitcoin::hashes::sha256t_hash_newtype;
+
 sha256t_hash_newtype! {
     pub(crate) struct InputsTag = hash_str("BIP0352/Inputs");
 
