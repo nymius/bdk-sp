@@ -1,4 +1,4 @@
-use crate::code::SilentPaymentCode;
+use crate::encoding::SilentPaymentCode;
 use crate::hashes::{InputsHash, SharedSecretHash};
 use bitcoin::TapTweakHash;
 use bitcoin::{

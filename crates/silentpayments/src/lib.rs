@@ -1,4 +1,4 @@
-pub mod code;
+pub mod encoding;
 pub mod hashes;
 pub mod receive;
 pub mod send;
