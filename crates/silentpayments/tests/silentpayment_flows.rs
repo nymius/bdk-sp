@@ -10,7 +10,7 @@ use bdk_silentpayments::{
         Address, Amount, BlockHash, Network, OutPoint, PrivateKey, Sequence, TapTweakHash,
         Transaction, TxIn, TxOut, Txid, Witness,
     },
-    code::SilentPaymentCode,
+    encoding::SilentPaymentCode,
     receive::Scanner,
     send::XprivSilentPaymentSender,
 };
