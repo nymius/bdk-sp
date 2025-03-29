@@ -1,0 +1,174 @@
+[group("Podman")]
+[doc("List all available commands.")]
+@default:
+  just --list --unsorted
+
+[group("Bitcoin Core")]
+[doc("Print the current session cookie to console.")]
+@cookie:
+  podman --connection regtest exec RegtestBitcoinEnv cat /root/.bitcoin/regtest/.cookie | cut -d ':' -f2
+
+[group("Bitcoin Core")]
+[doc("Mine a block, or mine <BLOCKS> number of blocks.")]
+@mine BLOCKS="1" ADDRESS="bcrt1q6gau5mg4ceupfhtyywyaj5ge45vgptvawgg3aq":
+  COOKIE=$(just cookie) && bitcoin-cli --chain=regtest --rpcuser=__cookie__ --rpcpassword=$COOKIE generatetoaddress {{BLOCKS}} {{ADDRESS}}
+
+[group("Bitcoin Core")]
+[doc("Send mining reward to <ADDRESS>")]
+@sendminingrewardto ADDRESS:
+  COOKIE=$(just cookie) && bitcoin-cli --chain=regtest --rpcuser=__cookie__ --rpcpassword=$COOKIE generatetoaddress 1 {{ADDRESS}}
+
+[group("Bitcoin Core")]
+[doc("Send a command to bitcoin-cli")]
+[positional-arguments]
+@cli COMMAND *ARGS:
+  COOKIE=$(just cookie) && bitcoin-cli --chain=regtest --rpcuser=__cookie__ --rpcpassword=$COOKIE {{COMMAND}} {{ARGS}}
+
+[group("Logs")]
+[doc("Print all logs to console.")]
+logs:
+  podman --connection regtest logs RegtestBitcoinEnv
+
+[group("Logs")]
+[doc("Print bitcoin daemon logs to console.")]
+bitcoindlogs:
+  podman --connection regtest exec -it RegtestBitcoinEnv tail -f /root/log/bitcoin.log
+
+[group("Logs")]
+[doc("Print Esplora logs to console.")]
+esploralogs:
+  podman --connection regtest exec -it RegtestBitcoinEnv tail -f /root/log/esplora.log
+
+[group("Logs")]
+[doc("Print block explorer logs to console.")]
+explorerlogs:
+  podman --connection regtest exec -it RegtestBitcoinEnv tail -f /root/log/fbbe.log
+
+[group("Podman")]
+[doc("Start your podman machine and regtest environment.")]
+start:
+  podman machine start regtest
+  podman --connection regtest start RegtestBitcoinEnv
+  podman --connection regtest exec RegtestBitcoinEnv cat /root/.bitcoin/regtest/.cookie > /tmp/.cookie
+
+[group("Podman")]
+[doc("Stop your podman machine and regtest environment.")]
+stop:
+  podman --connection regtest stop RegtestBitcoinEnv
+  podman machine stop regtest
+
+[group("Podman")]
+[doc("Enter the shell in the pod.")]
+podshell:
+  podman --connection regtest exec -it RegtestBitcoinEnv /bin/bash
+
+[group("Podman")]
+[doc("Open the block explorer.")]
+explorer:
+  open http://127.0.0.1:3003
+
+[group("Docs")]
+[doc("Serve the local docs.")]
+servedocs:
+  mkdocs serve
+
+[group("Docs")]
+[doc("Open the website for docs.")]
+docs:
+  open https://thunderbiscuit.github.io/regtest-in-a-pod/
+
+[group("Default Wallet")]
+[doc("Create a default wallet.")]
+@createwallet:
+  COOKIE=$(just cookie) \
+  && bitcoin-cli --chain=regtest --rpcuser=__cookie__ --rpcpassword=$COOKIE createwallet podmanwallet \
+  && bitcoin-cli --chain=regtest --rpcuser=__cookie__ --rpcpassword=$COOKIE -rpcwallet=podmanwallet settxfee 0.0001
+
+[group("Default Wallet")]
+[doc("Print an address from the default wallet.")]
+@newaddress:
+  COOKIE=$(just cookie) && bitcoin-cli --chain=regtest --rpcuser=__cookie__ --rpcpassword=$COOKIE -rpcwallet=podmanwallet getnewaddress
+
+[group("Default Wallet")]
+[doc("Print the balance of the default wallet.")]
+@walletbalance:
+  COOKIE=$(just cookie) && bitcoin-cli --chain=regtest --rpcuser=__cookie__ --rpcpassword=$COOKIE -rpcwallet=podmanwallet getbalance
+
+[group("Default Wallet")]
+[doc("Send 1 bitcoin to <ADDRESS> using the default wallet.")]
+@sendto ADDRESS:
+  COOKIE=$(just cookie) && bitcoin-cli --chain=regtest --rpcuser=__cookie__ --rpcpassword=$COOKIE -rpcwallet=podmanwallet sendtoaddress {{ADDRESS}} 1
+
+[group("BDK")]
+[doc("Generate and store external and internal descriptors")]
+bdk_init:
+  #!/usr/bin/env bash
+  KEYS=$(cargo run --bin example_electrum generate) && \
+  echo $KEYS | jq -r ".private_internal_descriptor" | tee /tmp/.bdk_descriptor
+  echo $KEYS | jq -r ".private_external_descriptor" | tee /tmp/.bdk_change_descriptor
+
+[group("BDK electrum")]
+[doc("Send a command to bdk example_electrum")]
+[positional-arguments]
+bdk_electrum COMMAND="help" *ARGS="":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  export DESCRIPTOR=$(cat /tmp/.bdk_descriptor)
+  export CHANGE_DESCRIPTOR=$(cat /tmp/.bdk_change_descriptor)
+  export NETWORK="regtest"
+  cargo -q run --bin example_electrum {{COMMAND}} {{ARGS}}
+
+[group("BDK electrum")]
+[doc("Mine <BLOCKS> to a new wallet address from electrum example db.")]
+bdk_fund_electrum BLOCKS="1":
+  #!/usr/bin/env bash
+  export ADDRESS=$(just bdk_electrum address next | jq -r ".address")
+  just mine {{BLOCKS}} $ADDRESS
+
+[group("BDK silentpayments")]
+[doc("Send a command to bdk example_silentpayments")]
+[positional-arguments]
+bdk_sp COMMAND="help" *ARGS="":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  export DESCRIPTOR=$(cat /tmp/.bdk_descriptor)
+  export CHANGE_DESCRIPTOR=$(cat /tmp/.bdk_change_descriptor)
+  export RPC_URL=http://127.0.0.1:18443
+  export RPC_USER=__cookie__
+  export RPC_PASS=$(just cookie)
+  cargo -q run --bin example_silentpayments {{COMMAND}} {{ARGS}}
+
+[group("BDK bitcoindrpc")]
+[doc("Send a command to bdk example_bitcoind_rpc_polling")]
+[positional-arguments]
+bdk_rpc COMMAND="help" *ARGS="":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  export DESCRIPTOR=$(cat /tmp/.bdk_descriptor)
+  export CHANGE_DESCRIPTOR=$(cat /tmp/.bdk_change_descriptor)
+  export NETWORK="regtest"
+  export RPC_URL=http://127.0.0.1:18443
+  export RPC_USER=__cookie__
+  export RPC_PASS=$(just cookie)
+  cargo -q run --bin example_bitcoind_rpc_polling {{COMMAND}} {{ARGS}}
+
+[group("BDK flows")]
+[doc("Send a command to bdk example cli")]
+[positional-arguments]
+bdk_sp_send *ARGS="":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  echo "Synchronize wallet to detect spend transaction outputs"
+  just bdk_electrum sync
+  FAKE_ADDRESS=$(just bdk_electrum address next | jq -r ".address")
+  SAT_AMOUNT=10000
+  ORIGINAL_PSBT=$(just bdk_electrum psbt new $SAT_AMOUNT $FAKE_ADDRESS | jq -r ".psbt")
+  echo "Original PSBT: $ORIGINAL_PSBT"
+  SP_PSBT=$(just bdk_sp to-silent-payment --psbt $ORIGINAL_PSBT | jq -r ".psbt")
+  echo "PSBT with P2TR single output replaced by Silent Payment Code derived output: $SP_PSBT"
+  SIGNED_SP_PSBT=$(just bdk_electrum psbt sign --psbt $SP_PSBT | jq -r ".psbt")
+  echo "Signed PSBT with silent payment output: $SIGNED_SP_PSBT"
+  SP_TX=$(just bdk_electrum psbt extract $SIGNED_SP_PSBT -b | jq -r ".broadcasted_tx")
+  echo "Broadcasted txid: $SP_TX"
+  just mine 1 2>&1 1>/dev/null
+  just bdk_sp scan
