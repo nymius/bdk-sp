@@ -67,9 +67,9 @@ fn receive_from_taproot_wallet_and_scan_output_successfully() -> anyhow::Result<
     let scanner = Scanner::new(scan_sk, sp_code.spend, <HashMap<_, _>>::new());
 
     for sp_output in scanner.scan_tx(&tx_to_scan, &[txout])? {
-        let output_sk = spend_sk.add_tweak(&sp_output.tweak).unwrap();
+        let output_sk = spend_sk.add_tweak(&sp_output.tweak.into()).unwrap();
         // Check the output is spendable
-        assert_eq!(output_sk.x_only_public_key(&secp).0, sp_output.public_key);
+        assert_eq!(output_sk.x_only_public_key(&secp).0, sp_output.xonly_pubkey);
     }
 
     Ok(())

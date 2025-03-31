@@ -1,6 +1,9 @@
-use bdk_chain::{BlockId, CheckPoint};
+use bdk_chain::{tx_graph, BlockId, CheckPoint, ConfirmationBlockTime, Indexer, TxGraph};
+use bdk_silentpayments::receive::SpReceiveError;
+use bitcoin::key::TweakedPublicKey;
+use bitcoin::{ScriptBuf, Transaction};
 use serde_json::json;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use std::env;
 use std::str::FromStr;
@@ -16,7 +19,7 @@ use bdk_silentpayments::{
         Block, OutPoint, Psbt, TxOut, Txid,
     },
     encoding::SilentPaymentCode,
-    receive::{Scanner, SpOutput},
+    receive::{Scanner, SpOut},
     send::XprivSilentPaymentSender,
 };
 
@@ -38,6 +41,102 @@ const SILENT_PAYMENT_SCAN_SECRETKEY: &str =
     "b700f356a63cbab8da1fb7b3e5cbbfbb4e56d83c8b7271d0bc6f92882f70aa85";
 const SILENT_PAYMENT_ENCODED: &str = "sprt1qqw7zfpjcuwvq4zd3d4aealxq3d669s3kcde4wgr3zl5ugxs40twv2qccgvszutt7p796yg4h926kdnty66wxrfew26gu2gk5h5hcg4s2jqyascfz";
 
+pub struct SpIndexer<T, A> {
+    prevout_source: T,
+    pub scanner: Scanner,
+    // NOTE: Redundancy of the OutPoint here is to have a fast way to query particular SpOuts
+    // associated with a particular Outpoint.
+    // NOTE: Do not create SpIndex::spouts method which include OutPoint inside iterator because there is
+    // no reason to have the outpoint twice here (one in the tuple and another inside the SpOut)
+    // and a DoubleEndedIterator can also be obtained using the BTreeMap::values method
+    pub indexes: SpIndexes,
+    pub tx_graph: TxGraph<A>,
+}
+
+pub struct SpIndexes {
+    pub spouts: BTreeMap<OutPoint, SpOut>,
+    pub txid_to_shared_secret: BTreeMap<Txid, PublicKey>,
+    pub label_to_output: BTreeSet<(Option<u32>, SpOut)>,
+    pub label_to_tweak: BTreeMap<u32, Scalar>,
+}
+
+pub trait PrevoutSource {
+    fn get_tx_prevouts(&self, tx: &Transaction) -> Vec<TxOut>;
+}
+
+impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
+    pub fn new(prevout_source: T, scanner: Scanner) -> Self {
+        Self {
+            prevout_source,
+            scanner,
+            indexes: SpIndexes {
+                spouts: BTreeMap::default(),
+                label_to_output: BTreeSet::default(),
+                label_to_tweak: BTreeMap::default(),
+                txid_to_shared_secret: BTreeMap::default(),
+            },
+            tx_graph: TxGraph::default(),
+        }
+    }
+
+    fn is_tx_relevant(&self, tx: &Transaction) -> bool {
+        let prevouts = self.prevout_source.get_tx_prevouts(tx);
+        let input_matches = tx
+            .input
+            .iter()
+            .any(|input| self.indexes.spouts.contains_key(&input.previous_output));
+        let ecdh_shared_secret = self
+            .scanner
+            .compute_shared_secret(tx, &prevouts)
+            .expect("infallible");
+        if let Ok(spouts) = self
+            .scanner
+            .scan_txouts(tx, ecdh_shared_secret)
+            .collect::<Result<Vec<SpOut>, _>>()
+        {
+            input_matches || !spouts.is_empty()
+        } else {
+            input_matches
+        }
+    }
+
+    fn index_tx(&mut self, tx: &Transaction) -> Result<(), SpReceiveError> {
+        let prevouts = self.prevout_source.get_tx_prevouts(tx);
+        let ecdh_shared_secret = self
+            .scanner
+            .compute_shared_secret(tx, &prevouts)
+            .expect("infallible");
+        for spout_found in self.scanner.scan_txouts(tx, ecdh_shared_secret) {
+            if let Ok(spout) = spout_found {
+                if !self
+                    .indexes
+                    .txid_to_shared_secret
+                    .contains_key(&tx.compute_txid())
+                {
+                    self.indexes
+                        .txid_to_shared_secret
+                        .insert(tx.compute_txid(), ecdh_shared_secret);
+                    self.tx_graph.insert_tx(tx.clone());
+                }
+                self.indexes.spouts.insert(spout.outpoint, spout.clone());
+            }
+        }
+        Ok(())
+    }
+}
+
+impl SpIndexes {
+    pub fn txouts_in_tx(&self, txid: Txid) -> impl DoubleEndedIterator<Item = &SpOut> {
+        self.spouts
+            .range(OutPoint::new(txid, u32::MIN)..=OutPoint::new(txid, u32::MAX))
+            .map(|(_op, spout)| spout)
+    }
+
+    pub fn txout(&self, outpoint: OutPoint) -> Option<TxOut> {
+        self.spouts.get(&outpoint).map(Into::into)
+    }
+}
+
 #[derive(Args, Debug, Clone)]
 pub struct RpcArgs {
     /// RPC URL
@@ -49,6 +148,26 @@ pub struct RpcArgs {
     /// RPC auth password
     #[clap(env = "RPC_PASS", long)]
     rpc_password: Option<String>,
+}
+
+struct Custom(Client);
+
+impl PrevoutSource for Custom {
+    fn get_tx_prevouts(&self, tx: &Transaction) -> Vec<TxOut> {
+        let mut prevouts = <Vec<TxOut>>::new();
+        let outpoint_refs = tx.input.iter().map(|x| x.previous_output);
+        for OutPoint { txid, vout } in outpoint_refs {
+            let prev_tx = self
+                .0
+                .get_raw_transaction_info(&txid, None)
+                .expect("reckless")
+                .transaction()
+                .expect("reckless");
+            let prevout = prev_tx.tx_out(vout as usize).expect("reckless").clone();
+            prevouts.push(prevout);
+        }
+        prevouts
+    }
 }
 
 impl RpcArgs {
@@ -207,17 +326,18 @@ fn main() -> anyhow::Result<()> {
             let silent_payment_code = SilentPaymentCode::try_from(silent_payment_code.as_str())?;
 
             let rpc_client = rpc_args.new_client()?;
+            let rpc_client_v2 = rpc_args.new_client()?;
+            let custom_client = Custom(rpc_client_v2);
             let chain_tip = CheckPoint::new(BlockId {
                 height: 0u32,
                 hash: rpc_client.get_block_hash(0)?,
             });
             let label_lookup = HashMap::<PublicKey, (Scalar, u32)>::new();
             let scanner = Scanner::new(scan_sk, silent_payment_code.spend, label_lookup);
+            let mut sp_indexer =
+                SpIndexer::<_, bdk_chain::ConfirmationBlockTime>::new(custom_client, scanner);
 
             let mut emitter = Emitter::new(&rpc_client, chain_tip, 0);
-            let mut found_sp_outputs = <Vec<SpOutput>>::new();
-
-            let mut sp_txs = <Vec<Txid>>::new();
             while let Some(emission) = emitter.next_block()? {
                 let _height = emission.block_height();
                 let Block {
@@ -228,24 +348,17 @@ fn main() -> anyhow::Result<()> {
                     if !tx.output.iter().any(|x| x.script_pubkey.is_p2tr()) {
                         continue;
                     }
-                    let outpoint_refs = tx.input.iter().map(|x| x.previous_output);
-                    let mut prevouts = <Vec<TxOut>>::new();
-                    for OutPoint { txid, vout } in outpoint_refs {
-                        let prev_tx = rpc_client
-                            .get_raw_transaction_info(&txid, None)?
-                            .transaction()?;
-                        let prevout = prev_tx.tx_out(vout as usize)?.clone();
-                        prevouts.push(prevout);
-                    }
-                    let sp_outputs_in_tx = scanner.scan_tx(tx, &prevouts)?;
-                    if !sp_outputs_in_tx.is_empty() {
-                        sp_txs.push(tx.compute_txid());
-                    }
-                    found_sp_outputs.extend(sp_outputs_in_tx);
+                    sp_indexer.index_tx(tx);
                 }
             }
+            let spouts = sp_indexer
+                .indexes
+                .spouts
+                .values()
+                .map(|x| x.outpoint.txid)
+                .collect::<Vec<_>>();
             let mut obj = serde_json::Map::new();
-            obj.insert("silent_payments_found".to_string(), json!(&sp_txs));
+            obj.insert("silent_payments_found".to_string(), json!(&spouts));
             println!("{}", serde_json::to_string_pretty(&obj)?);
 
             let _mempool_txs = emitter.mempool()?;
