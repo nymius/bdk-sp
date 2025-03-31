@@ -133,7 +133,7 @@ impl XprivSilentPaymentSender {
         let mut ecdh_shared_secret_cache = <HashMap<PublicKey, PublicKey>>::new();
 
         #[allow(non_snake_case)]
-        // Cache to know the amount of B_m already added to the account
+        // Cache to track output count for each B_m
         let B_m_count_cache = <HashMap<PublicKey, u32>>::new();
 
         let mut script_pubkeys = <Vec<ScriptBuf>>::new();
