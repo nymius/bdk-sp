@@ -63,6 +63,11 @@ podshell:
   podman --connection regtest exec -it RegtestBitcoinEnv /bin/bash
 
 [group("Podman")]
+[doc("Execute command inside pod.")]
+podcmd *ARGS="":
+  podman --connection regtest exec RegtestBitcoinEnv /bin/bash -c '{{ARGS}}'
+
+[group("Podman")]
 [doc("Open the block explorer.")]
 explorer:
   open http://127.0.0.1:3003
