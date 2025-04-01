@@ -103,7 +103,7 @@ docs:
 [doc("Generate and store external and internal descriptors")]
 bdk_init:
   #!/usr/bin/env bash
-  KEYS=$(cargo run --bin example_electrum generate) && \
+  KEYS=$(cargo -q run --bin example_electrum generate) && \
   echo $KEYS | jq -r ".private_internal_descriptor" | tee /tmp/.bdk_descriptor
   echo $KEYS | jq -r ".private_external_descriptor" | tee /tmp/.bdk_change_descriptor
 
