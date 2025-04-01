@@ -164,7 +164,6 @@ bdk_sp_send *ARGS="":
   #!/usr/bin/env bash
   set -euo pipefail
   echo "Synchronize wallet to detect spend transaction outputs"
-  just bdk_electrum sync
   FAKE_ADDRESS=$(just bdk_electrum address next | jq -r ".address")
   SAT_AMOUNT=10000
   ORIGINAL_PSBT=$(just bdk_electrum psbt new $SAT_AMOUNT $FAKE_ADDRESS | jq -r ".psbt")
@@ -175,5 +174,32 @@ bdk_sp_send *ARGS="":
   echo "Signed PSBT with silent payment output: $SIGNED_SP_PSBT"
   SP_TX=$(just bdk_electrum psbt extract $SIGNED_SP_PSBT -b | jq -r ".broadcasted_tx")
   echo "Broadcasted txid: $SP_TX"
-  just mine 1 2>&1 1>/dev/null
+  just mine 1
   just bdk_sp scan
+
+[group("BDK flows")]
+bdk_sp_indexer_flow:
+  #!/usr/bin/env bash
+  containers_running=$(podman machine ls --format json | jq -r .[0].Running)
+  if [[ $containers_running == "true" ]]; then
+    just stop;
+  fi
+
+  if  [ -f ./.bdk_example_electrum.db ]; then
+    rm -rf .bdk_example_electrum.db;
+  fi
+  just start
+
+  just podcmd bitcoin-cli --chain=regtest stop
+  just podcmd rm -rf /root/.bitcoin/regtest
+  just stop
+  just start
+  just bdk_init
+  just bdk_electrum init
+  just bdk_fund_electrum 101
+  sleep 20
+  just bdk_electrum scan
+  just bdk_electrum sync
+  just bdk_sp_send
+  just stop
+  rm -rf .bdk_example_electrum.db
