@@ -11,7 +11,7 @@ start:
   #!/usr/bin/env bash
   just startvm
 
-  if just cli getblockchaininfo 2>1 >/dev/null; then
+  if just cli getblockchaininfo 2>&1 >/dev/null; then
     echo "Bitcoind is already running"
     exit
   fi
