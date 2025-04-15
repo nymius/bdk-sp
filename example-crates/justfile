@@ -1,21 +1,23 @@
+set quiet
+
 [group("Podman")]
 [doc("List all available commands.")]
-@default:
+default:
   just --list --unsorted
 
 [group("Bitcoin Core")]
 [doc("Print the current session cookie to console.")]
-@cookie:
+cookie:
   podman --connection regtest exec RegtestBitcoinEnv cat /root/.bitcoin/regtest/.cookie | cut -d ':' -f2
 
 [group("Bitcoin Core")]
 [doc("Mine a block, or mine <BLOCKS> number of blocks.")]
-@mine BLOCKS="1" ADDRESS="bcrt1q6gau5mg4ceupfhtyywyaj5ge45vgptvawgg3aq":
+mine BLOCKS="1" ADDRESS="bcrt1q6gau5mg4ceupfhtyywyaj5ge45vgptvawgg3aq":
   COOKIE=$(just cookie) && bitcoin-cli --chain=regtest --rpcuser=__cookie__ --rpcpassword=$COOKIE generatetoaddress {{BLOCKS}} {{ADDRESS}}
 
 [group("Bitcoin Core")]
 [doc("Send mining reward to <ADDRESS>")]
-@sendminingrewardto ADDRESS:
+sendminingrewardto ADDRESS:
   COOKIE=$(just cookie) && bitcoin-cli --chain=regtest --rpcuser=__cookie__ --rpcpassword=$COOKIE generatetoaddress 1 {{ADDRESS}}
 
 [group("Bitcoin Core")]
@@ -84,24 +86,24 @@ docs:
 
 [group("Default Wallet")]
 [doc("Create a default wallet.")]
-@createwallet:
+createwallet:
   COOKIE=$(just cookie) \
   && bitcoin-cli --chain=regtest --rpcuser=__cookie__ --rpcpassword=$COOKIE createwallet podmanwallet \
   && bitcoin-cli --chain=regtest --rpcuser=__cookie__ --rpcpassword=$COOKIE -rpcwallet=podmanwallet settxfee 0.0001
 
 [group("Default Wallet")]
 [doc("Print an address from the default wallet.")]
-@newaddress:
+newaddress:
   COOKIE=$(just cookie) && bitcoin-cli --chain=regtest --rpcuser=__cookie__ --rpcpassword=$COOKIE -rpcwallet=podmanwallet getnewaddress
 
 [group("Default Wallet")]
 [doc("Print the balance of the default wallet.")]
-@walletbalance:
+walletbalance:
   COOKIE=$(just cookie) && bitcoin-cli --chain=regtest --rpcuser=__cookie__ --rpcpassword=$COOKIE -rpcwallet=podmanwallet getbalance
 
 [group("Default Wallet")]
 [doc("Send 1 bitcoin to <ADDRESS> using the default wallet.")]
-@sendto ADDRESS:
+sendto ADDRESS:
   COOKIE=$(just cookie) && bitcoin-cli --chain=regtest --rpcuser=__cookie__ --rpcpassword=$COOKIE -rpcwallet=podmanwallet sendtoaddress {{ADDRESS}} 1
 
 [group("BDK")]
