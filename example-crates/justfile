@@ -1,4 +1,5 @@
 set quiet
+export DEBUG_PREFIX := "just_debug"
 
 [group("Podman")]
 [doc("List all available commands.")]
@@ -9,6 +10,10 @@ default:
 [doc("Launch ephemeral environment")]
 start STATE="persistent":
   #!/usr/bin/env bash
+  short_date=$(/bin/date +%m%d%y)
+  exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
+  set -euxo pipefail
+  trap just stop SIGHUP SIGINT SIGQUIT SIGTERM
   just startvm
 
   ENVDIR="/root/env"
@@ -41,6 +46,10 @@ start STATE="persistent":
 [doc("Get path to services state directory")]
 envpath:
   #!/usr/bin/env bash
+  short_date=$(/bin/date +%m%d%y)
+  exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
+  set -euxo pipefail
+
   ENVDIR="/tmp/testenv"
   testenv=$(just podcmd "if [ -d $ENVDIR ]; then echo 'true'; fi")
   if [ "$testenv" = "true" ]; then
@@ -69,6 +78,10 @@ sendminingrewardto ADDRESS:
 [doc("Send a command to bitcoin-cli")]
 [positional-arguments]
 cli COMMAND *ARGS:
+  #!/usr/bin/env bash
+  short_date=$(/bin/date +%m%d%y)
+  exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
+  set -euxo pipefail
   bitcoin-cli --chain=regtest --rpcuser=__cookie__ --rpcpassword=$(just cookie) {{COMMAND}} {{ARGS}}
 
 [group("Logs")]
@@ -95,6 +108,9 @@ explorerlogs:
 [doc("Start your podman machine and regtest environment.")]
 startvm:
   #!/usr/bin/env bash
+  short_date=$(/bin/date +%m%d%y)
+  exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
+  set -euxo pipefail
   containers_running=$(podman machine ls --format json | jq -r .[0].Running)
   if [ "$containers_running" = "true" ]; then
     echo "Container is running"
@@ -107,6 +123,9 @@ startvm:
 [doc("Stop your podman machine and running environment.")]
 stop:
   #!/usr/bin/env bash
+  short_date=$(/bin/date +%m%d%y)
+  exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
+  set -uxo pipefail
   echo "Stopping container"
 
   just podcmd "rm -rf /tmp/testenv"
@@ -129,6 +148,9 @@ podshell:
 [doc("Execute command inside pod.")]
 podcmd *ARGS="":
   #!/usr/bin/env bash
+  short_date=$(/bin/date +%m%d%y)
+  exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
+  set -euxo pipefail
 
   containers_running=$(podman machine ls --format json | jq -r .[0].Running)
   if [ "$containers_running" = "false" ]; then
@@ -177,6 +199,9 @@ sendto ADDRESS:
 [doc("Generate and store external and internal descriptors")]
 bdk_init:
   #!/usr/bin/env bash
+  short_date=$(/bin/date +%m%d%y)
+  exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
+  set -euxo pipefail
   KEYS=$(cargo -q run --bin example_electrum generate) && \
   echo $KEYS | jq -r ".private_internal_descriptor" | tee /tmp/.bdk_descriptor
   echo $KEYS | jq -r ".private_external_descriptor" | tee /tmp/.bdk_change_descriptor
@@ -186,7 +211,9 @@ bdk_init:
 [positional-arguments]
 bdk_electrum COMMAND="help" *ARGS="":
   #!/usr/bin/env bash
-  set -euo pipefail
+  short_date=$(/bin/date +%m%d%y)
+  exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
+  set -euxo pipefail
   export DESCRIPTOR=$(cat /tmp/.bdk_descriptor)
   export CHANGE_DESCRIPTOR=$(cat /tmp/.bdk_change_descriptor)
   export NETWORK="regtest"
@@ -196,6 +223,9 @@ bdk_electrum COMMAND="help" *ARGS="":
 [doc("Mine <BLOCKS> to a new wallet address from electrum example db.")]
 bdk_fund_electrum BLOCKS="1":
   #!/usr/bin/env bash
+  short_date=$(/bin/date +%m%d%y)
+  exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
+  set -euxo pipefail
   export ADDRESS=$(just bdk_electrum address next | jq -r ".address")
   just mine {{BLOCKS}} $ADDRESS
 
@@ -204,7 +234,9 @@ bdk_fund_electrum BLOCKS="1":
 [positional-arguments]
 bdk_sp COMMAND="help" *ARGS="":
   #!/usr/bin/env bash
-  set -euo pipefail
+  short_date=$(/bin/date +%m%d%y)
+  exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
+  set -euxo pipefail
   export DESCRIPTOR=$(cat /tmp/.bdk_descriptor)
   export CHANGE_DESCRIPTOR=$(cat /tmp/.bdk_change_descriptor)
   export RPC_URL=http://127.0.0.1:18443
@@ -217,7 +249,9 @@ bdk_sp COMMAND="help" *ARGS="":
 [positional-arguments]
 bdk_rpc COMMAND="help" *ARGS="":
   #!/usr/bin/env bash
-  set -euo pipefail
+  short_date=$(/bin/date +%m%d%y)
+  exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
+  set -euxo pipefail
   export DESCRIPTOR=$(cat /tmp/.bdk_descriptor)
   export CHANGE_DESCRIPTOR=$(cat /tmp/.bdk_change_descriptor)
   export NETWORK="regtest"
@@ -231,7 +265,9 @@ bdk_rpc COMMAND="help" *ARGS="":
 [positional-arguments]
 bdk_sp_send *ARGS="":
   #!/usr/bin/env bash
-  set -euo pipefail
+  short_date=$(/bin/date +%m%d%y)
+  exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
+  set -euxo pipefail
   echo "Synchronize wallet to detect spend transaction outputs"
   FAKE_ADDRESS=$(just bdk_electrum address next | jq -r ".address")
   SAT_AMOUNT=10000
@@ -249,6 +285,9 @@ bdk_sp_send *ARGS="":
 [group("BDK flows")]
 bdk_sp_indexer_flow:
   #!/usr/bin/env bash
+  short_date=$(/bin/date +%m%d%y)
+  exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
+  set -euxo pipefail
   if  [ -f ./.bdk_example_electrum.db ]; then
     rm -rf .bdk_example_electrum.db;
   fi
