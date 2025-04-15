@@ -5,6 +5,40 @@ set quiet
 default:
   just --list --unsorted
 
+[group("Services")]
+[doc("Launch ephemeral environment")]
+start:
+  #!/usr/bin/env bash
+  just startvm
+
+  if just cli getblockchaininfo 2>1 >/dev/null; then
+    echo "Bitcoind is already running"
+    exit
+  fi
+
+  ENV_DIR="/tmp/testenv"
+  LOGDIR="$ENV_DIR/log"
+  BITCOIND_LOG="$LOGDIR/bitcoin.log"
+  ESPLORA_LOG="$LOGDIR/esplora.log"
+  FBBE_LOG="$LOGDIR/fbbe.log"
+  COOKIE_PATH="$ENV_DIR/regtest/.cookie"
+
+  # Create the log directory
+  just podcmd mkdir -p $LOGDIR
+
+  # Start the bitcoin daemon
+  just podcmd "bitcoind --daemonwait --datadir=$ENV_DIR --chain=regtest --txindex --blockfilterindex --peerblockfilters --rpcbind=0.0.0.0 --rpcallowip=0.0.0.0/0 --rpcport=18443 --rest -debuglogfile=$BITCOIND_LOG 2>&1 &"
+  just podcmd "cat $COOKIE_PATH > /tmp/.cookie"
+
+  # Start the blockchain explorer
+  just podcmd "/root/fbbe/target/release/fbbe --network regtest --local-addr 0.0.0.0:3003 > $FBBE_LOG 2>&1 &"
+  sleep 10
+
+  # Start the Esplora and Electrum services
+  just podcmd "/root/electrs/target/release/electrs -vvvv --daemon-dir $ENV_DIR --http-addr 0.0.0.0:3002 --electrum-rpc-addr 0.0.0.0:60401 --network=regtest --lightmode > $ESPLORA_LOG 2>&1 &"
+  just podcmd "echo $ENV_DIR > /tmp/env"
+  sleep 10
+
 [group("Bitcoin Core")]
 [doc("Print the current session cookie to console.")]
 cookie:
@@ -26,6 +60,14 @@ sendminingrewardto ADDRESS:
 @cli COMMAND *ARGS:
   bitcoin-cli --chain=regtest --rpcuser=__cookie__ --rpcpassword=$(just cookie) {{COMMAND}} {{ARGS}}
 
+envpath:
+  #!/usr/bin/env bash
+  if just podcmd "[ -d /tmp/testenv ]"; then
+    echo "/tmp/testenv"
+  else
+    echo "/root"
+  fi
+
 [group("Logs")]
 [doc("Print all logs to console.")]
 logs:
@@ -34,28 +76,40 @@ logs:
 [group("Logs")]
 [doc("Print bitcoin daemon logs to console.")]
 bitcoindlogs:
-  podman --connection regtest exec -it RegtestBitcoinEnv tail -f /root/log/bitcoin.log
+  just podcmd "tail -f $(just envpath)/log/bitcoin.log"
 
 [group("Logs")]
 [doc("Print Esplora logs to console.")]
 esploralogs:
-  podman --connection regtest exec -it RegtestBitcoinEnv tail -f /root/log/esplora.log
+  just podcmd "tail -f $(just envpath)/log/esplora.log"
 
 [group("Logs")]
 [doc("Print block explorer logs to console.")]
 explorerlogs:
-  podman --connection regtest exec -it RegtestBitcoinEnv tail -f /root/log/fbbe.log
+  just podcmd "tail -f $(just envpath)/log/fbbe.log"
 
 [group("Podman")]
 [doc("Start your podman machine and regtest environment.")]
-start:
-  podman machine start regtest
+startvm:
+  #!/usr/bin/env bash
+  containers_running=$(podman machine ls --format json | jq -r .[0].Running)
+  if [[ $containers_running == "true" ]]; then
+    echo "Container is running"
+    exit
+  fi
+  podman machine start regtest | tail -n1
   podman --connection regtest start RegtestBitcoinEnv
-  podman --connection regtest exec RegtestBitcoinEnv cat /root/.bitcoin/regtest/.cookie > /tmp/.cookie
 
 [group("Podman")]
-[doc("Stop your podman machine and regtest environment.")]
+[doc("Stop your podman machine and running environment.")]
 stop:
+  #!/usr/bin/env bash
+  echo "Stopping container"
+  containers_running=$(podman machine ls --format json | jq -r .[0].Running)
+  if [[ $containers_running == "false" ]]; then
+    echo "Container is not running"
+    exit
+  fi
   podman --connection regtest stop RegtestBitcoinEnv
   podman machine stop regtest
 
@@ -181,19 +235,9 @@ bdk_sp_send *ARGS="":
 [group("BDK flows")]
 bdk_sp_indexer_flow:
   #!/usr/bin/env bash
-  containers_running=$(podman machine ls --format json | jq -r .[0].Running)
-  if [[ $containers_running == "true" ]]; then
-    just stop;
-  fi
-
   if  [ -f ./.bdk_example_electrum.db ]; then
     rm -rf .bdk_example_electrum.db;
   fi
-  just start
-
-  just podcmd bitcoin-cli --chain=regtest stop
-  just podcmd rm -rf /root/.bitcoin/regtest
-  just stop
   just start
   just bdk_init
   just bdk_electrum init
