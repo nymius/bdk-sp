@@ -68,7 +68,7 @@ sendminingrewardto ADDRESS:
 [group("Bitcoin Core")]
 [doc("Send a command to bitcoin-cli")]
 [positional-arguments]
-@cli COMMAND *ARGS:
+cli COMMAND *ARGS:
   bitcoin-cli --chain=regtest --rpcuser=__cookie__ --rpcpassword=$(just cookie) {{COMMAND}} {{ARGS}}
 
 [group("Logs")]
