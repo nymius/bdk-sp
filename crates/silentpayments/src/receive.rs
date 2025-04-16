@@ -142,7 +142,8 @@ pub struct Scanner {
     label_lookup: HashMap<PublicKey, (Scalar, u32)>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct SpOut {
     pub outpoint: OutPoint,
     pub tweak: SecretKey,
