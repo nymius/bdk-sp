@@ -5,7 +5,7 @@ use bitcoin::{
     self,
     hashes::{Hash, HashEngine},
     key::{Parity, Secp256k1, TweakedPublicKey},
-    secp256k1::{self, ecdh::shared_secret_point, PublicKey, Scalar, SecretKey},
+    secp256k1::{ecdh::shared_secret_point, PublicKey, Scalar, SecretKey},
     Amount, CompressedPublicKey, OutPoint, PubkeyHash, ScriptBuf, Transaction, TxIn, TxOut, Txid,
     XOnlyPublicKey,
 };
@@ -186,7 +186,7 @@ impl Scanner {
     ) -> Result<PublicKey, SpReceiveError> {
         assert_eq!(tx.input.len(), prevouts.len());
 
-        let secp = secp256k1::Secp256k1::new();
+        let secp = Secp256k1::verification_only();
 
         let input_pubkeys = tx
             .input
@@ -255,7 +255,7 @@ impl Scanner {
         tx: &'a Transaction,
         ecdh_shared_secret: PublicKey,
     ) -> impl Iterator<Item = Result<SpOut, SpReceiveError>> + 'a {
-        let secp = secp256k1::Secp256k1::new();
+        let secp = Secp256k1::signing_only();
         let txid: Txid = tx.compute_txid();
         let mut spouts_found = 0_u32;
 
@@ -305,7 +305,7 @@ impl Scanner {
         outpoint: OutPoint,
         prevout: &TxOut,
     ) -> Result<Option<SpOut>, SpReceiveError> {
-        let secp = Secp256k1::new();
+        let secp = Secp256k1::verification_only();
 
         let xonly_pubkey = if prevout.script_pubkey.is_p2tr() {
             XOnlyPublicKey::from_slice(&prevout.script_pubkey.as_bytes()[2..])?

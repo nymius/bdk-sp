@@ -4,8 +4,8 @@ use bitcoin::TapTweakHash;
 use bitcoin::{
     bip32::{DerivationPath, Xpriv},
     hashes::{Hash, HashEngine},
-    key::{Parity, TweakedPublicKey},
-    secp256k1::{self, PublicKey, Scalar, SecretKey},
+    key::{Secp256k1, Parity, TweakedPublicKey},
+    secp256k1::{PublicKey, Scalar, SecretKey},
     OutPoint, ScriptBuf,
 };
 use std::collections::HashMap;
@@ -66,7 +66,7 @@ impl XprivSilentPaymentSender {
         inputs: &[(OutPoint, DerivationPath)],
         outputs: &[SilentPaymentCode],
     ) -> Result<Vec<ScriptBuf>, SpSendError> {
-        let secp = secp256k1::Secp256k1::new();
+        let secp = Secp256k1::new();
         let (outpoints, derivation_paths): (Vec<_>, Vec<_>) = inputs.iter().cloned().unzip();
         let smallest_outpoint = outpoints
             .into_iter()
