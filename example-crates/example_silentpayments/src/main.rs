@@ -1,28 +1,34 @@
-use bdk_chain::{
-    local_chain, tx_graph, BlockId, CheckPoint, ConfirmationBlockTime, Indexer, Merge, TxGraph,
-};
-use bdk_silentpayments::receive::SpReceiveError;
-use bitcoin::key::TweakedPublicKey;
-use bitcoin::{ScriptBuf, Transaction};
-use miniscript::DescriptorPublicKey;
-use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-
 use std::env;
+use std::iter::Extend;
 use std::str::FromStr;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use anyhow::{self, bail, Context};
-
 use clap::{self, Args, Parser, Subcommand};
+use miniscript::{
+    descriptor::{DescriptorSecretKey, DescriptorType},
+    Descriptor, DescriptorPublicKey, ToPublicKey,
+};
+use rand::RngCore;
+use serde_json::json;
+
+use bdk_chain::{
+    local_chain::{self, LocalChain},
+    tx_graph, BlockId, ChainOracle, ConfirmationBlockTime, Merge, TxGraph, TxPosInBlock,
+};
+use bdk_file_store::Store;
 
 use bdk_silentpayments::{
     bitcoin::{
-        bip32::DerivationPath,
+        bip32::{self, DerivationPath},
+        constants,
         secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey},
-        Block, OutPoint, Psbt, TxOut, Txid,
+        Amount, Block, Network, OutPoint, Psbt, Transaction, TxOut, Txid,
     },
     encoding::SilentPaymentCode,
-    receive::{Scanner, SpOut},
+    receive::{Scanner, SpOut, SpReceiveError},
     send::XprivSilentPaymentSender,
 };
 
@@ -31,8 +37,6 @@ use bdk_bitcoind_rpc::{
     Emitter,
 };
 
-use miniscript::{descriptor::DescriptorSecretKey, Descriptor};
-
 #[allow(dead_code)]
 const SILENT_PAYMENT_SPEND_WIF: &str = "cRFcZbp7cAeZGsnYKdgSZwH6drJ3XLnPSGcjLNCpRy28tpGtZR11";
 #[allow(dead_code)]
@@ -40,9 +44,18 @@ const SILENT_PAYMENT_SCAN_WIF: &str = "cTiSJ8p2zpGSkWGkvYFWfKurgWvSi9hdvzw9GEws1
 #[allow(dead_code)]
 const SILENT_PAYMENT_SPEND_SECRETKEY: &str =
     "6d87b87889341032b6509470233601a722834808def6454450bf42a9af22d263";
+#[allow(dead_code)]
 const SILENT_PAYMENT_SCAN_SECRETKEY: &str =
     "b700f356a63cbab8da1fb7b3e5cbbfbb4e56d83c8b7271d0bc6f92882f70aa85";
 const SILENT_PAYMENT_ENCODED: &str = "sprt1qqw7zfpjcuwvq4zd3d4aealxq3d669s3kcde4wgr3zl5ugxs40twv2qccgvszutt7p796yg4h926kdnty66wxrfew26gu2gk5h5hcg4s2jqyascfz";
+
+const DB_MAGIC: &[u8] = b"bdk_example_silentpayments";
+const DB_PATH: &str = ".bdk_example_silentpayments.db";
+
+/// Delay for printing status to stdout.
+const STDOUT_PRINT_DELAY: Duration = Duration::from_secs(6);
+/// Delay for committing to persistence.
+const DB_COMMIT_DELAY: Duration = Duration::from_secs(60);
 
 pub struct SpIndexer<T, A> {
     prevout_source: T,
@@ -284,9 +297,9 @@ pub struct RpcArgs {
     rpc_password: Option<String>,
 }
 
-struct Custom(Client);
+struct Custom<'a>(&'a Client);
 
-impl PrevoutSource for Custom {
+impl PrevoutSource for Custom<'_> {
     fn get_tx_prevouts(&self, tx: &Transaction) -> Vec<TxOut> {
         let mut prevouts = <Vec<TxOut>>::new();
         let outpoint_refs = tx.input.iter().map(|x| x.previous_output);
@@ -323,15 +336,38 @@ impl RpcArgs {
 #[clap(propagate_version = true)]
 pub struct SpArgs {
     #[clap(subcommand)]
-    pub command: SilentPaymentCommands,
+    pub command: Commands,
 }
 
 #[derive(Subcommand, Debug, Clone)]
-pub enum SilentPaymentCommands {
+pub enum Commands {
+    Generate {
+        /// Network
+        #[clap(long, short, default_value = "signet")]
+        network: Network,
+    },
+    Code {
+        #[clap(long)]
+        label: Option<u32>,
+        /// Private descriptor
+        #[clap(long = "scan", env = "SCAN_DESCRIPTOR")]
+        scan_descriptor: Option<String>,
+    },
+    Init {
+        /// Network
+        #[clap(long, short, default_value = "signet", env = "NETWORK")]
+        network: Network,
+        /// Descriptor
+        #[clap(long = "scan", env = "SCAN_DESCRIPTOR")]
+        scan_descriptor: String,
+        /// Change descriptor
+        #[clap(long = "spend", env = "SPEND_DESCRIPTOR")]
+        spend_descriptor: String,
+    },
     /// Replace PSBT single taproot output with a silent payment derived taproot output
     ToSilentPayment {
         /// Silent payment code from which you want to derive the script pub key
-        #[clap(default_value = SILENT_PAYMENT_ENCODED)]
+        #[clap(long = "code", default_value = SILENT_PAYMENT_ENCODED)]
         silent_payment_code: String,
         /// The original PSBT you are trying to replace outputs from
         #[clap(long)]
@@ -344,27 +380,82 @@ pub enum SilentPaymentCommands {
         #[clap(long, short)]
         debug: bool,
     },
-
     /// Use bitcoind RPC to scan the blockchain looking for silent payment outputs belonging to the
     /// provided silent payment code
     Scan {
         /// The scan key needed to generate the shared secret in combination with tx inputs
-        #[clap(long, default_value = SILENT_PAYMENT_SCAN_SECRETKEY)]
-        scan_sk: SecretKey,
+        #[clap(long = "scan", env = "SCAN_DESCRIPTOR")]
+        scan_descriptor: String,
         /// Silent payment code to get the spend pub key from to derive the full script pubkey
-        #[clap(default_value = SILENT_PAYMENT_ENCODED)]
+        #[clap(long = "code", default_value = SILENT_PAYMENT_ENCODED)]
         silent_payment_code: String,
         /// The RPC parameters to communicate with bitcoind RPC
         #[clap(flatten)]
         rpc_args: RpcArgs,
     },
+    Balance,
 }
 
 fn main() -> anyhow::Result<()> {
-    let args = SpArgs::parse();
+    let Init {
+        args,
+        graph,
+        chain,
+        db,
+        sp_code,
+        mut indexes,
+    } = match init_or_load(DB_MAGIC, DB_PATH)? {
+        Some(init) => init,
+        None => return Ok(()),
+    };
 
     match args.command {
-        SilentPaymentCommands::ToSilentPayment {
+        Commands::Init { .. } | Commands::Generate { .. } => {
+            unreachable!("already handled by init_or_load")
+        }
+        Commands::Code {
+            label,
+            scan_descriptor,
+        } => {
+            let secp = Secp256k1::new();
+
+            match label {
+                None => {
+                    let mut obj = serde_json::Map::new();
+                    obj.insert(
+                        "silent_payment_code".to_string(),
+                        json!(sp_code.to_string()),
+                    );
+                    println!("{}", serde_json::to_string_pretty(&obj)?);
+                }
+                Some(_) if scan_descriptor.is_none() => bail!("unable to generate labelled silent payment code without spend private descriptor"),
+                Some(m) => {
+                    let scan_sk = get_sk_from_sp_descriptor(scan_descriptor.unwrap())?;
+
+                    let label = SilentPaymentCode::get_label(scan_sk, m);
+                    let labelled_sp_code = sp_code.add_label(label)?;
+                    let neg_spend_pk = sp_code.spend.negate(&secp);
+                    #[allow(non_snake_case)]
+                    // label_G = B_m - B_spend
+                    let label_G = labelled_sp_code.spend.combine(&neg_spend_pk)?;
+                    indexes.label_to_tweak.insert(label_G, (label, m));
+                    {
+                        let db = &mut *db.lock().unwrap();
+                        db.append(&ChangeSet {
+                            indexes: indexes.into(),
+                            ..Default::default()
+                        })?;
+                    }
+                    let mut obj = serde_json::Map::new();
+                    obj.insert(
+                        "labelled_silent_payment_code".to_string(),
+                        json!(labelled_sp_code.to_string()),
+                    );
+                    println!("{}", serde_json::to_string_pretty(&obj)?);
+                }
+            };
+        }
+        Commands::ToSilentPayment {
             silent_payment_code,
             psbt,
             descriptor,
@@ -388,7 +479,7 @@ fn main() -> anyhow::Result<()> {
                 None => env::var("DESCRIPTOR").context("unable to sign")?,
             };
 
-            let secp = Secp256k1::new();
+            let secp = Secp256k1::signing_only();
             let (_, keymap) = Descriptor::parse_descriptor(&secp, &desc_str)?;
             if keymap.is_empty() {
                 bail!("unable to sign")
@@ -452,38 +543,91 @@ fn main() -> anyhow::Result<()> {
                 println!("{}", serde_json::to_string_pretty(&obj)?);
             };
         }
-        SilentPaymentCommands::Scan {
-            scan_sk,
+        Commands::Scan {
+            scan_descriptor,
             silent_payment_code,
             rpc_args,
         } => {
+            let start = Instant::now();
+            let scan_sk = get_sk_from_sp_descriptor(scan_descriptor)?;
             let silent_payment_code = SilentPaymentCode::try_from(silent_payment_code.as_str())?;
 
             let rpc_client = rpc_args.new_client()?;
-            let rpc_client_v2 = rpc_args.new_client()?;
-            let custom_client = Custom(rpc_client_v2);
-            let chain_tip = CheckPoint::new(BlockId {
-                height: 0u32,
-                hash: rpc_client.get_block_hash(0)?,
-            });
-            let label_lookup = HashMap::<PublicKey, (Scalar, u32)>::new();
-            let scanner = Scanner::new(scan_sk, silent_payment_code.spend, label_lookup);
+            let chain_tip = chain.lock().unwrap().tip();
+            let custom_client = Custom(&rpc_client);
+            let scanner = Scanner::new(scan_sk, silent_payment_code.spend, indexes.label_to_tweak);
             let mut sp_indexer =
                 SpIndexer::<_, bdk_chain::ConfirmationBlockTime>::new(custom_client, scanner);
 
             let mut emitter = Emitter::new(&rpc_client, chain_tip, 0);
+            let mut db_stage = ChangeSet::default();
+
+            let mut last_db_commit = Instant::now();
+            let mut last_print = Instant::now();
 
             while let Some(emission) = emitter.next_block()? {
-                let _height = emission.block_height();
-                let Block {
-                    header: _header,
-                    txdata,
-                } = emission.block;
-                for tx in txdata.iter().skip(1) {
+                let mut chain = chain.lock().unwrap();
+                let mut graph = graph.lock().unwrap();
+                let height = emission.block_height();
+
+                db_stage.local_chain.merge(
+                    chain
+                        .apply_update(emission.checkpoint)
+                        .expect("must always apply as we receive blocks in order from emitter"),
+                );
+
+                let block = &emission.block;
+                let hash = block.block_hash();
+                let Block { ref txdata, .. } = block;
+
+                let block_id = BlockId { hash, height };
+                for (tx_pos, tx) in txdata.iter().enumerate().skip(1) {
                     if !tx.output.iter().any(|x| x.script_pubkey.is_p2tr()) {
                         continue;
                     }
-                    sp_indexer.index_tx(tx);
+                    let tx_graph_stage = sp_indexer.index_tx(tx)?;
+                    if !tx_graph_stage.is_empty() {
+                        let txid = tx.compute_txid();
+                        db_stage.tx_graph.merge(tx_graph_stage);
+                        let anchor = TxPosInBlock {
+                            block,
+                            block_id,
+                            tx_pos,
+                        }
+                        .into();
+                        db_stage.tx_graph.merge(graph.insert_tx(tx.clone()));
+                        db_stage.tx_graph.merge(graph.insert_anchor(txid, anchor));
+                    }
+                }
+
+                // commit staged db changes in intervals
+                if last_db_commit.elapsed() >= DB_COMMIT_DELAY {
+                    let db = &mut *db.lock().unwrap();
+                    last_db_commit = Instant::now();
+                    if let Some(changeset) = db_stage.take() {
+                        db.append(&changeset)?;
+                    }
+                    println!(
+                        "[{:>10}s] committed to db (took {}s)",
+                        start.elapsed().as_secs_f32(),
+                        last_db_commit.elapsed().as_secs_f32()
+                    );
+                }
+
+                // print synced-to height and current balance in intervals
+                if last_print.elapsed() >= STDOUT_PRINT_DELAY {
+                    last_print = Instant::now();
+                    let synced_to = chain.tip();
+                    let outpoints = indexes.spouts.clone().into_iter().map(|(x, y)| (y, x));
+                    let balance =
+                        { graph.balance(&*chain, synced_to.block_id(), outpoints, |_, _| false) };
+                    println!(
+                        "[{:>10}s] synced to {} @ {} | total: {}",
+                        start.elapsed().as_secs_f32(),
+                        synced_to.hash(),
+                        synced_to.height(),
+                        balance.total()
+                    );
                 }
             }
             let spouts = sp_indexer
@@ -495,10 +639,232 @@ fn main() -> anyhow::Result<()> {
             let mut obj = serde_json::Map::new();
             obj.insert("silent_payments_found".to_string(), json!(&spouts));
             println!("{}", serde_json::to_string_pretty(&obj)?);
+            {
+                let db = &mut *db.lock().unwrap();
+                db.append(&db_stage)?;
+            }
+        }
+        Commands::Balance => {
+            let graph = &*graph.lock().unwrap();
+            let chain = &*chain.lock().unwrap();
+            fn print_balances<'a>(
+                title_str: &'a str,
+                items: impl IntoIterator<Item = (&'a str, Amount)>,
+            ) {
+                println!("{}:", title_str);
+                for (name, amount) in items.into_iter() {
+                    println!("    {:<10} {:>12} sats", name, amount.to_sat())
+                }
+            }
 
-            let _mempool_txs = emitter.mempool()?;
+            let outpoints = indexes.spouts.into_iter().map(|(x, y)| (y, x));
+
+            let balance =
+                graph.try_balance(chain, chain.get_chain_tip()?, outpoints, |_, _| false)?;
+
+            let confirmed_total = balance.confirmed + balance.immature;
+            let unconfirmed_total = balance.untrusted_pending + balance.trusted_pending;
+
+            print_balances(
+                "confirmed",
+                [
+                    ("total", confirmed_total),
+                    ("spendable", balance.confirmed),
+                    ("immature", balance.immature),
+                ],
+            );
+            print_balances(
+                "unconfirmed",
+                [
+                    ("total", unconfirmed_total),
+                    ("trusted", balance.trusted_pending),
+                    ("untrusted", balance.untrusted_pending),
+                ],
+            );
         }
     };
 
     Ok(())
+}
+
+/// The initial state returned by [`init_or_load`].
+pub struct Init {
+    /// CLI args
+    pub args: SpArgs,
+    /// Indexed graph
+    pub graph: Mutex<TxGraph>,
+    /// Local chain
+    pub chain: Mutex<LocalChain>,
+    pub sp_code: SilentPaymentCode,
+    pub indexes: SpIndexes,
+    /// Database
+    pub db: Mutex<Store<ChangeSet>>,
+}
+
+pub fn init_or_load(db_magic: &[u8], db_path: &str) -> anyhow::Result<Option<Init>> {
+    let args = SpArgs::parse();
+
+    match args.command {
+        Commands::Generate { network } => {
+            let secp = Secp256k1::new();
+            let mut seed = [0x00; 32];
+            rand::rng().fill_bytes(&mut seed);
+
+            let m = bip32::Xpriv::new_master(network, &seed)?;
+            let fp = m.fingerprint(&secp);
+            let scan_privkey_derivation = "1h/0";
+            let spend_privkey_derivation = "0h/0";
+            let path = if m.network.is_mainnet() {
+                "352h/0h/0h"
+            } else {
+                "352h/1h/0h"
+            };
+
+            let descriptors: Vec<String> = [scan_privkey_derivation, spend_privkey_derivation]
+                .iter()
+                .map(|final_deriv| format!("tr([{fp}]{m}/{path}/{final_deriv})"))
+                .collect();
+            let scan_privkey_descriptor = &descriptors[0];
+            let spend_privkey_descriptor = &descriptors[1];
+            let (scan_descriptor, scan_keymap) =
+                <Descriptor<DescriptorPublicKey>>::parse_descriptor(
+                    &secp,
+                    scan_privkey_descriptor,
+                )?;
+            let (spend_descriptor, spend_keymap) =
+                <Descriptor<DescriptorPublicKey>>::parse_descriptor(
+                    &secp,
+                    spend_privkey_descriptor,
+                )?;
+            let mut obj = serde_json::Map::new();
+            obj.insert(
+                "public_scan_descriptor".to_string(),
+                json!(scan_descriptor.to_string()),
+            );
+            obj.insert(
+                "private_scan_descriptor".to_string(),
+                json!(scan_descriptor.to_string_with_secret(&scan_keymap)),
+            );
+            obj.insert(
+                "public_spend_descriptor".to_string(),
+                json!(spend_descriptor.to_string()),
+            );
+            obj.insert(
+                "private_spend_descriptor".to_string(),
+                json!(spend_descriptor.to_string_with_secret(&spend_keymap)),
+            );
+            println!("{}", serde_json::to_string_pretty(&obj)?);
+            Ok(None)
+        }
+        Commands::Init {
+            network,
+            scan_descriptor,
+            spend_descriptor,
+        } => {
+            let mut changeset = ChangeSet::default();
+
+            // parse descriptors
+            let secp = Secp256k1::new();
+            let (scan, _) =
+                Descriptor::<DescriptorPublicKey>::parse_descriptor(&secp, &scan_descriptor)?;
+            let (spend, _) =
+                Descriptor::<DescriptorPublicKey>::parse_descriptor(&secp, &spend_descriptor)?;
+
+            changeset.scan_descriptor = Some(scan);
+            changeset.spend_descriptor = Some(spend);
+
+            // create new
+            let (_, chain_changeset) =
+                LocalChain::from_genesis_hash(constants::genesis_block(network).block_hash());
+            changeset.network = Some(network);
+            changeset.local_chain = chain_changeset;
+            let mut db = Store::<ChangeSet>::create(db_magic, db_path)?;
+            db.append(&changeset)?;
+            println!("New database {DB_PATH}");
+            Ok(None)
+        }
+        _ => {
+            let (db, changeset) =
+                Store::<ChangeSet>::load(db_magic, db_path).context("could not open file store")?;
+
+            let changeset = changeset.expect("should not be empty");
+
+            let network = changeset.network.expect("changeset network");
+            let sp_code = if let (Some(scan_d), Some(spend_d)) =
+                (changeset.scan_descriptor, changeset.spend_descriptor)
+            {
+                if !scan_d.has_wildcard() && !spend_d.has_wildcard() {
+                    let scan_def_d = scan_d.at_derivation_index(0)?;
+                    let spend_def_d = spend_d.at_derivation_index(0)?;
+                    match (scan_def_d, spend_def_d) {
+                        (Descriptor::Tr(scan_), Descriptor::Tr(spend_)) => {
+                            let scan = scan_.internal_key().to_public_key();
+                            let spend = spend_.internal_key().to_public_key();
+                            SilentPaymentCode {
+                                scan: bitcoin::secp256k1::PublicKey::from_slice(
+                                    &scan.to_bytes()[..],
+                                )?,
+                                spend: bitcoin::secp256k1::PublicKey::from_slice(
+                                    &spend.to_bytes()[..],
+                                )?,
+                                version: 0,
+                                network,
+                            }
+                        }
+                        _ => return Ok(None),
+                    }
+                } else {
+                    return Ok(None);
+                }
+            } else {
+                return Ok(None);
+            };
+
+            let chain = Mutex::new({
+                let (mut chain, _) =
+                    LocalChain::from_genesis_hash(constants::genesis_block(network).block_hash());
+                chain.apply_changeset(&changeset.local_chain)?;
+                chain
+            });
+
+            let mut tx_graph = TxGraph::default();
+            tx_graph.apply_changeset(changeset.tx_graph);
+
+            let indexes = SpIndexes::from(changeset.indexes);
+            let graph = Mutex::new(tx_graph);
+            let db = Mutex::new(db);
+
+            Ok(Some(Init {
+                args,
+                sp_code,
+                graph,
+                chain,
+                db,
+                indexes,
+            }))
+        }
+    }
+}
+
+fn get_sk_from_sp_descriptor(desc_str: String) -> Result<SecretKey, anyhow::Error> {
+    let secp = Secp256k1::signing_only();
+    let (descriptor, keymap) = Descriptor::parse_descriptor(&secp, &desc_str)?;
+
+    if descriptor.desc_type() != DescriptorType::Tr {
+        bail!("silent payment descriptors should be Taproot")
+    }
+
+    if keymap.is_empty() {
+        bail!("unable to derive label")
+    }
+
+    // note: we're only looking at the first entry in the keymap
+    // the idea is to find something that impls `GetKey`
+    match keymap.iter().next().expect("not empty") {
+        (_, DescriptorSecretKey::XPrv(privkey)) => {
+            let derived_key = privkey.xkey.derive_priv(&secp, &privkey.derivation_path)?;
+            Ok(derived_key.private_key)
+        }
+        _ => unimplemented!("multi xkey signer"),
+    }
 }
