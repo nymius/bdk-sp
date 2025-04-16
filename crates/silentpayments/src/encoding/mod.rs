@@ -1,5 +1,7 @@
 pub mod error;
 
+use crate::hashes::LabelHash;
+
 pub use self::error::{ParseError, UnknownHrpError, VersionError};
 
 use bitcoin::{
@@ -11,7 +13,9 @@ use bitcoin::{
         },
         Fe32, Hrp,
     },
-    secp256k1::PublicKey,
+    hashes::{Hash, HashEngine},
+    key::Secp256k1,
+    secp256k1::{PublicKey, Scalar, SecretKey},
     Network,
 };
 /// Human readable prefix for encoding bitcoin Mainnet silent payment codes
@@ -27,6 +31,26 @@ pub struct SilentPaymentCode {
     pub scan: PublicKey,
     pub spend: PublicKey,
     pub network: Network,
+}
+
+impl SilentPaymentCode {
+    pub fn get_label(scan_sk: SecretKey, m: u32) -> Scalar {
+        let mut eng = LabelHash::engine();
+        eng.input(&scan_sk.secret_bytes());
+        eng.input(&m.to_be_bytes());
+        let label = LabelHash::from_engine(eng);
+        // This is statistically extremely unlikely to panic.
+        Scalar::from_be_bytes(label.to_byte_array()).expect("hash value greater than curve order")
+    }
+
+    pub fn add_label(&self, label: Scalar) -> Result<SilentPaymentCode, bitcoin::secp256k1::Error> {
+        let secp = Secp256k1::verification_only();
+
+        Ok(SilentPaymentCode {
+            spend: self.spend.add_exp_tweak(&secp, &label)?,
+            ..self.clone()
+        })
+    }
 }
 
 impl core::fmt::Display for SilentPaymentCode {
