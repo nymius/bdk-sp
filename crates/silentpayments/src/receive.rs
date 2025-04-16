@@ -268,7 +268,7 @@ impl Scanner {
                 let t_k = {
                     let mut eng = SharedSecretHash::engine();
                     eng.input(&ecdh_shared_secret.serialize());
-                    eng.input(&spouts_found.to_le_bytes());
+                    eng.input(&spouts_found.to_be_bytes());
                     let hash = SharedSecretHash::from_engine(eng);
                     SecretKey::from_slice(&hash.to_byte_array()).expect(
                         "computationally unreachable: only if hash value greater than curve order",

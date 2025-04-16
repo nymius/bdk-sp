@@ -163,7 +163,7 @@ impl XprivSilentPaymentSender {
             let T_k = {
                 let mut eng = SharedSecretHash::engine();
                 eng.input(&shared_secret.serialize());
-                eng.input(&k.to_le_bytes());
+                eng.input(&k.to_be_bytes());
                 let hash = SharedSecretHash::from_engine(eng);
                 let t_k = SecretKey::from_slice(&hash.to_byte_array()).expect(
                     "computationally unreachable: only if hash value greater than curve order",
