@@ -152,6 +152,18 @@ pub struct SpOut {
     pub label: Option<u32>,
 }
 
+impl PartialOrd for SpOut {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SpOut {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.outpoint.cmp(&other.outpoint)
+    }
+}
+
 impl From<&SpOut> for TxOut {
     fn from(spout: &SpOut) -> Self {
         let tweaked_pubkey = TweakedPublicKey::dangerous_assume_tweaked(spout.xonly_pubkey);

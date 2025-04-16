@@ -1,7 +1,10 @@
-use bdk_chain::{tx_graph, BlockId, CheckPoint, ConfirmationBlockTime, Indexer, TxGraph};
+use bdk_chain::{
+    local_chain, tx_graph, BlockId, CheckPoint, ConfirmationBlockTime, Indexer, Merge, TxGraph,
+};
 use bdk_silentpayments::receive::SpReceiveError;
 use bitcoin::key::TweakedPublicKey;
 use bitcoin::{ScriptBuf, Transaction};
+use miniscript::DescriptorPublicKey;
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -53,11 +56,122 @@ pub struct SpIndexer<T, A> {
     pub tx_graph: TxGraph<A>,
 }
 
+#[derive(Default)]
 pub struct SpIndexes {
     pub spouts: BTreeMap<OutPoint, SpOut>,
     pub txid_to_shared_secret: BTreeMap<Txid, PublicKey>,
     pub label_to_output: BTreeSet<(Option<u32>, SpOut)>,
-    pub label_to_tweak: BTreeMap<u32, Scalar>,
+    pub label_to_tweak: HashMap<PublicKey, (Scalar, u32)>,
+}
+
+impl From<SpIndexesChangeSet> for SpIndexes {
+    fn from(value: SpIndexesChangeSet) -> Self {
+        let label_to_tweak = value
+            .label_to_tweak
+            .into_iter()
+            .map(|(key, (value, m))| (key, (Scalar::from(value), m)))
+            .collect();
+        Self {
+            spouts: value.spouts,
+            txid_to_shared_secret: value.txid_to_shared_secret,
+            label_to_output: value.label_to_output,
+            label_to_tweak,
+        }
+    }
+}
+
+impl From<SpIndexes> for SpIndexesChangeSet {
+    fn from(value: SpIndexes) -> Self {
+        let label_to_tweak = value
+            .label_to_tweak
+            .into_iter()
+            .map(|(key, (value, m))| {
+                (
+                    key,
+                    (
+                        SecretKey::from_slice(&value.to_be_bytes()).expect("infallible"),
+                        m,
+                    ),
+                )
+            })
+            .collect();
+        Self {
+            spouts: value.spouts,
+            txid_to_shared_secret: value.txid_to_shared_secret,
+            label_to_output: value.label_to_output,
+            label_to_tweak,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[must_use]
+pub struct SpIndexesChangeSet {
+    pub spouts: BTreeMap<OutPoint, SpOut>,
+    pub txid_to_shared_secret: BTreeMap<Txid, PublicKey>,
+    pub label_to_output: BTreeSet<(Option<u32>, SpOut)>,
+    pub label_to_tweak: HashMap<PublicKey, (SecretKey, u32)>,
+}
+
+impl Merge for SpIndexesChangeSet {
+    fn merge(&mut self, other: Self) {
+        // We use `extend` instead of `BTreeMap::append` due to performance issues with `append`.
+        // Refer to https://github.com/rust-lang/rust/issues/34666#issuecomment-675658420
+        self.spouts.extend(other.spouts);
+        self.txid_to_shared_secret
+            .extend(other.txid_to_shared_secret);
+        self.label_to_output.extend(other.label_to_output);
+        self.label_to_tweak.extend(other.label_to_tweak);
+    }
+
+    fn is_empty(&self) -> bool {
+        self.spouts.is_empty()
+            && self.txid_to_shared_secret.is_empty()
+            && self.label_to_output.is_empty()
+            && self.label_to_tweak.is_empty()
+    }
+}
+
+/// A changeset for [`Wallet`](crate::Wallet).
+#[derive(Default, Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct ChangeSet {
+    /// Descriptors for recipient addresses.
+    pub scan_descriptor: Option<Descriptor<DescriptorPublicKey>>,
+    pub spend_descriptor: Option<Descriptor<DescriptorPublicKey>>,
+    /// Stores the network type of the transaction data.
+    pub network: Option<bitcoin::Network>,
+    /// Changes to the [`LocalChain`](local_chain::LocalChain).
+    pub local_chain: local_chain::ChangeSet,
+    /// Changes to [`TxGraph`](tx_graph::TxGraph).
+    pub tx_graph: tx_graph::ChangeSet<ConfirmationBlockTime>,
+    /// Changes to [`SpIndexes`](SpIndexes).
+    pub indexes: SpIndexesChangeSet,
+}
+
+impl Merge for ChangeSet {
+    fn merge(&mut self, other: Self) {
+        if other.scan_descriptor.is_some() {
+            self.scan_descriptor = other.scan_descriptor;
+        }
+        if other.spend_descriptor.is_some() {
+            self.spend_descriptor = other.spend_descriptor;
+        }
+        if other.network.is_some() {
+            self.network = other.network;
+        }
+        Merge::merge(&mut self.local_chain, other.local_chain);
+        Merge::merge(&mut self.tx_graph, other.tx_graph);
+        Merge::merge(&mut self.indexes, other.indexes);
+    }
+
+    fn is_empty(&self) -> bool {
+        self.scan_descriptor.is_none()
+            && self.spend_descriptor.is_none()
+            && self.network.is_none()
+            && self.local_chain.is_empty()
+            && self.tx_graph.is_empty()
+            && self.indexes.is_empty()
+    }
 }
 
 pub trait PrevoutSource {
@@ -69,16 +183,12 @@ impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
         Self {
             prevout_source,
             scanner,
-            indexes: SpIndexes {
-                spouts: BTreeMap::default(),
-                label_to_output: BTreeSet::default(),
-                label_to_tweak: BTreeMap::default(),
-                txid_to_shared_secret: BTreeMap::default(),
-            },
+            indexes: SpIndexes::default(),
             tx_graph: TxGraph::default(),
         }
     }
 
+    #[allow(dead_code)]
     fn is_tx_relevant(&self, tx: &Transaction) -> bool {
         let prevouts = self.prevout_source.get_tx_prevouts(tx);
         let input_matches = tx
@@ -100,28 +210,52 @@ impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
         }
     }
 
-    fn index_tx(&mut self, tx: &Transaction) -> Result<(), SpReceiveError> {
+    fn index_tx(&mut self, tx: &Transaction) -> Result<tx_graph::ChangeSet<A>, SpReceiveError> {
         let prevouts = self.prevout_source.get_tx_prevouts(tx);
         let ecdh_shared_secret = self
             .scanner
             .compute_shared_secret(tx, &prevouts)
             .expect("infallible");
-        for spout_found in self.scanner.scan_txouts(tx, ecdh_shared_secret) {
-            if let Ok(spout) = spout_found {
-                if !self
-                    .indexes
-                    .txid_to_shared_secret
-                    .contains_key(&tx.compute_txid())
-                {
-                    self.indexes
-                        .txid_to_shared_secret
-                        .insert(tx.compute_txid(), ecdh_shared_secret);
-                    self.tx_graph.insert_tx(tx.clone());
-                }
-                self.indexes.spouts.insert(spout.outpoint, spout.clone());
+
+        // Index labels
+        let label_to_spouts = self
+            .scanner
+            .scan_txouts(tx, ecdh_shared_secret)
+            .flatten()
+            .map(|spout| (spout.label, spout.clone()))
+            .collect::<BTreeSet<(Option<u32>, SpOut)>>();
+
+        self.indexes.label_to_output.extend(label_to_spouts.clone());
+
+        let spouts = label_to_spouts
+            .iter()
+            .map(|(_, spout)| (spout.outpoint, spout.clone()))
+            .collect::<BTreeMap<OutPoint, SpOut>>();
+
+        let mut tx_graph_changeset = tx_graph::ChangeSet::<A>::default();
+
+        // Add tx and prevouts to tx_graph
+        if !spouts.is_empty()
+            && !self
+                .indexes
+                .txid_to_shared_secret
+                .contains_key(&tx.compute_txid())
+        {
+            self.indexes
+                .txid_to_shared_secret
+                .insert(tx.compute_txid(), ecdh_shared_secret);
+            tx_graph_changeset.merge(self.tx_graph.insert_tx(tx.clone()));
+            for (prevout, outpoint) in prevouts
+                .iter()
+                .zip(tx.input.iter().map(|x| x.previous_output))
+            {
+                tx_graph_changeset.merge(self.tx_graph.insert_txout(outpoint, prevout.clone()));
             }
         }
-        Ok(())
+        // Index spouts
+        self.indexes.spouts.extend(spouts);
+
+        Ok(tx_graph_changeset)
     }
 }
 
@@ -338,6 +472,7 @@ fn main() -> anyhow::Result<()> {
                 SpIndexer::<_, bdk_chain::ConfirmationBlockTime>::new(custom_client, scanner);
 
             let mut emitter = Emitter::new(&rpc_client, chain_tip, 0);
+
             while let Some(emission) = emitter.next_block()? {
                 let _height = emission.block_height();
                 let Block {
