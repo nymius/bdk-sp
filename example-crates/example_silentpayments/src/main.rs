@@ -25,10 +25,10 @@ use bdk_silentpayments::{
         bip32::{self, DerivationPath},
         constants,
         secp256k1::{Secp256k1, SecretKey},
-        Amount, Block, Network, OutPoint, Psbt, TxOut,
+        Amount, Block, Network, OutPoint, Psbt, ScriptBuf, TxOut,
     },
     encoding::SilentPaymentCode,
-    receive::Scanner,
+    receive::{Scanner, SpOut},
     send::XprivSilentPaymentSender,
 };
 
@@ -50,6 +50,8 @@ const SILENT_PAYMENT_SPEND_SECRETKEY: &str =
 const SILENT_PAYMENT_SCAN_SECRETKEY: &str =
     "b700f356a63cbab8da1fb7b3e5cbbfbb4e56d83c8b7271d0bc6f92882f70aa85";
 const SILENT_PAYMENT_ENCODED: &str = "sprt1qqw7zfpjcuwvq4zd3d4aealxq3d669s3kcde4wgr3zl5ugxs40twv2qccgvszutt7p796yg4h926kdnty66wxrfew26gu2gk5h5hcg4s2jqyascfz";
+
+const CHANGE_LABEL: u32 = 0;
 
 const DB_MAGIC: &[u8] = b"bdk_example_silentpayments";
 const DB_PATH: &str = ".bdk_example_silentpayments.db";
@@ -194,6 +196,11 @@ pub enum Commands {
         rpc_args: RpcArgs,
     },
     Balance,
+}
+
+#[inline]
+fn is_change(spout: &SpOut, _: ScriptBuf) -> bool {
+    spout.label.map_or(false, |x| x == CHANGE_LABEL)
 }
 
 fn main() -> anyhow::Result<()> {
