@@ -449,6 +449,17 @@ fn main() -> anyhow::Result<()> {
                 }
             }
 
+            let db = &mut *db.lock().unwrap();
+            db_stage.indexes.merge(sp_indexer.indexes.clone().into());
+            if let Some(changeset) = db_stage.take() {
+                db.append(&changeset)?;
+            }
+            println!(
+                "[{:>10}s] committed to db (took {}s)",
+                start.elapsed().as_secs_f32(),
+                last_db_commit.elapsed().as_secs_f32()
+            );
+
             if never_printed {
                 let chain = &*chain.lock().unwrap();
                 let graph = &*graph.lock().unwrap();
@@ -478,10 +489,6 @@ fn main() -> anyhow::Result<()> {
             let mut obj = serde_json::Map::new();
             obj.insert("silent_payments_found".to_string(), json!(&spouts));
             println!("{}", serde_json::to_string_pretty(&obj)?);
-            {
-                let db = &mut *db.lock().unwrap();
-                db.append(&db_stage)?;
-            }
         }
         Commands::Balance => {
             let graph = &*graph.lock().unwrap();
