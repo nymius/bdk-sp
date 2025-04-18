@@ -374,6 +374,7 @@ fn main() -> anyhow::Result<()> {
 
             let mut last_db_commit = Instant::now();
             let mut last_print = Instant::now();
+            let mut never_printed = true;
 
             while let Some(emission) = emitter.next_block()? {
                 let mut chain = chain.lock().unwrap();
@@ -444,8 +445,30 @@ fn main() -> anyhow::Result<()> {
                         synced_to.height(),
                         balance.total()
                     );
+                    never_printed = false;
                 }
             }
+
+            if never_printed {
+                let chain = &*chain.lock().unwrap();
+                let graph = &*graph.lock().unwrap();
+                let synced_to = chain.tip();
+                let outpoints = sp_indexer
+                    .indexes
+                    .spouts
+                    .clone()
+                    .into_iter()
+                    .map(|(x, y)| (y, x));
+                let balance = { graph.balance(chain, synced_to.block_id(), outpoints, is_change) };
+                println!(
+                    "[{:>10}s] synced to {} @ {} | total: {}",
+                    start.elapsed().as_secs_f32(),
+                    synced_to.hash(),
+                    synced_to.height(),
+                    balance.total()
+                );
+            }
+
             let spouts = sp_indexer
                 .indexes
                 .spouts
