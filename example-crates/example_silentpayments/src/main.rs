@@ -166,6 +166,9 @@ pub enum Commands {
         /// Silent payment code from which you want to derive the script pub key
         #[clap(long = "code", default_value = SILENT_PAYMENT_ENCODED)]
         silent_payment_code: String,
+        /// The amount denominated in satoshis of the output you are going to replace
+        #[clap(long)]
+        amount: u64,
         /// The original PSBT you are trying to replace outputs from
         #[clap(long)]
         psbt: String,
@@ -254,6 +257,7 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::ToSilentPayment {
             silent_payment_code,
+            amount,
             psbt,
             descriptor,
             debug,
@@ -263,7 +267,8 @@ fn main() -> anyhow::Result<()> {
             let single_external_txout = psbt
                 .unsigned_tx
                 .output
-                .first()
+                .iter()
+                .find(|x| x.value == Amount::from_sat(amount))
                 .expect("send to multiple addresses not implemented yet")
                 .clone();
 
@@ -278,6 +283,7 @@ fn main() -> anyhow::Result<()> {
 
             let secp = Secp256k1::signing_only();
             let (_, keymap) = Descriptor::parse_descriptor(&secp, &desc_str)?;
+
             if keymap.is_empty() {
                 bail!("unable to sign")
             }

@@ -442,7 +442,7 @@ bdk_sp_new_example:
     ORIGINAL_PSBT=$(just bdk_electrum psbt new $SAT_AMOUNT $FAKE_ADDRESS | jq -r ".psbt")
     echo "Original PSBT: $ORIGINAL_PSBT"
 
-    SP_PSBT=$(just bdk_sp to-silent-payment --psbt $ORIGINAL_PSBT --code $SP_CODE_WITHOUT_LABEL | jq -r ".psbt")
+    SP_PSBT=$(just bdk_sp to-silent-payment --psbt $ORIGINAL_PSBT --code $SP_CODE_WITHOUT_LABEL --amount $SAT_AMOUNT | jq -r ".psbt")
     echo "PSBT with P2TR single output replaced by Silent Payment Code derived output: $SP_PSBT"
     SIGNED_SP_PSBT=$(just bdk_electrum psbt sign --psbt $SP_PSBT | jq -r ".psbt")
     echo "Signed PSBT with silent payment output: $SIGNED_SP_PSBT"
@@ -454,7 +454,8 @@ bdk_sp_new_example:
 
     ORIGINAL_PSBT=$(just bdk_electrum psbt new $SAT_AMOUNT $FAKE_ADDRESS | jq -r ".psbt")
     echo "Original PSBT: $ORIGINAL_PSBT"
-    SP_PSBT=$(just bdk_sp to-silent-payment --psbt $ORIGINAL_PSBT --code $SP_CODE_WITH_LABEL | jq -r ".psbt")
+
+    SP_PSBT=$(just bdk_sp to-silent-payment --psbt $ORIGINAL_PSBT --code $SP_CODE_WITH_LABEL --amount $SAT_AMOUNT | jq -r ".psbt")
     echo "PSBT with P2TR single output replaced by Silent Payment Code derived output: $SP_PSBT"
     SIGNED_SP_PSBT=$(just bdk_electrum psbt sign --psbt $SP_PSBT | jq -r ".psbt")
     echo "Signed PSBT with silent payment output: $SIGNED_SP_PSBT"
