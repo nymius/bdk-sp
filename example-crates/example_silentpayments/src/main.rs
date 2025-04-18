@@ -201,26 +201,12 @@ impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
         }
     }
 
-    #[allow(dead_code)]
-    fn is_tx_relevant(&self, tx: &Transaction) -> bool {
-        let prevouts = self.prevout_source.get_tx_prevouts(tx);
+    fn spends_owned_spouts(&self, tx: &Transaction) -> bool {
         let input_matches = tx
             .input
             .iter()
             .any(|input| self.indexes.spouts.contains_key(&input.previous_output));
-        let ecdh_shared_secret = self
-            .scanner
-            .compute_shared_secret(tx, &prevouts)
-            .expect("infallible");
-        if let Ok(spouts) = self
-            .scanner
-            .scan_txouts(tx, ecdh_shared_secret)
-            .collect::<Result<Vec<SpOut>, _>>()
-        {
-            input_matches || !spouts.is_empty()
-        } else {
-            input_matches
-        }
+        input_matches
     }
 
     fn index_tx(&mut self, tx: &Transaction) -> Result<tx_graph::ChangeSet<A>, SpReceiveError> {
@@ -586,7 +572,7 @@ fn main() -> anyhow::Result<()> {
                         continue;
                     }
                     let tx_graph_stage = sp_indexer.index_tx(tx)?;
-                    if !tx_graph_stage.is_empty() {
+                    if !tx_graph_stage.is_empty() || sp_indexer.spends_owned_spouts(tx) {
                         let txid = tx.compute_txid();
                         db_stage.tx_graph.merge(tx_graph_stage);
                         let anchor = TxPosInBlock {
