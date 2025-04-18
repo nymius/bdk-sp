@@ -464,6 +464,9 @@ bdk_sp_new_example:
     just mine 1
 
     cargo -q run --bin example_silentpayments scan --scan "$SCAN_DESCRIPTOR" --code "$SP_CODE_WITHOUT_LABEL"
+
+    just bdk_sp balance
+
   fi
 
   just stop

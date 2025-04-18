@@ -505,8 +505,7 @@ fn main() -> anyhow::Result<()> {
 
             let outpoints = indexes.spouts.into_iter().map(|(x, y)| (y, x));
 
-            let balance =
-                graph.try_balance(chain, chain.get_chain_tip()?, outpoints, |_, _| false)?;
+            let balance = graph.try_balance(chain, chain.get_chain_tip()?, outpoints, is_change)?;
 
             let confirmed_total = balance.confirmed + balance.immature;
             let unconfirmed_total = balance.untrusted_pending + balance.trusted_pending;
