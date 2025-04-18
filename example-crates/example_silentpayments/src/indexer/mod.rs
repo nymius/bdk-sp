@@ -13,7 +13,7 @@ use bdk_silentpayments::{
 
 use bdk_bitcoind_rpc::bitcoincore_rpc::{Client, RpcApi};
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct SpIndexes {
     pub spouts: BTreeMap<OutPoint, SpOut>,
     pub txid_to_shared_secret: BTreeMap<Txid, PublicKey>,

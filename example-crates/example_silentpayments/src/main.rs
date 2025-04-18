@@ -414,6 +414,7 @@ fn main() -> anyhow::Result<()> {
                 if last_db_commit.elapsed() >= DB_COMMIT_DELAY {
                     let db = &mut *db.lock().unwrap();
                     last_db_commit = Instant::now();
+                    db_stage.indexes.merge(sp_indexer.indexes.clone().into());
                     if let Some(changeset) = db_stage.take() {
                         db.append(&changeset)?;
                     }
@@ -428,7 +429,12 @@ fn main() -> anyhow::Result<()> {
                 if last_print.elapsed() >= STDOUT_PRINT_DELAY {
                     last_print = Instant::now();
                     let synced_to = chain.tip();
-                    let outpoints = indexes.spouts.clone().into_iter().map(|(x, y)| (y, x));
+                    let outpoints = sp_indexer
+                        .indexes
+                        .spouts
+                        .clone()
+                        .into_iter()
+                        .map(|(x, y)| (y, x));
                     let balance =
                         { graph.balance(&*chain, synced_to.block_id(), outpoints, |_, _| false) };
                     println!(
