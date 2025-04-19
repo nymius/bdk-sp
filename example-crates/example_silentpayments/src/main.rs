@@ -1,9 +1,11 @@
 mod indexer;
 
-use std::env;
-use std::str::FromStr;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::{
+    cmp, env,
+    str::FromStr,
+    sync::Mutex,
+    time::{Duration, Instant},
+};
 
 use anyhow::{self, bail, Context};
 use clap::{self, Args, Parser, Subcommand};
@@ -11,25 +13,36 @@ use miniscript::{
     descriptor::{DescriptorSecretKey, DescriptorType},
     Descriptor, DescriptorPublicKey, ToPublicKey,
 };
-use rand::RngCore;
+use rand::{rng, seq::SliceRandom, RngCore};
 use serde_json::json;
 
 use bdk_chain::{
     local_chain::{self, LocalChain},
-    tx_graph, BlockId, ChainOracle, ConfirmationBlockTime, Merge, TxGraph, TxPosInBlock,
+    tx_graph, BlockId, ChainOracle, ConfirmationBlockTime, FullTxOut, Merge, TxGraph, TxPosInBlock,
 };
+
 use bdk_file_store::Store;
+
+use bdk_coin_select::{
+    metrics::LowestFee, Candidate, ChangePolicy, CoinSelector, DrainWeights, FeeRate, Target,
+    TargetFee, TargetOutputs,
+};
 
 use bdk_sp::{
     bitcoin::{
+        absolute,
+        address::NetworkUnchecked,
         bip32::{self, DerivationPath},
         constants,
+        key::UntweakedPublicKey,
         secp256k1::{Secp256k1, SecretKey},
-        Amount, Block, Network, OutPoint, Psbt, ScriptBuf, TxOut,
+        transaction::Version,
+        Address, Amount, Block, Network, OutPoint, Psbt, ScriptBuf, Sequence, Transaction, TxIn,
+        TxOut,
     },
     encoding::SilentPaymentCode,
     receive::{Scanner, SpOut},
-    send::XprivSilentPaymentSender,
+    send::{SpSender, XprivSilentPaymentSender},
 };
 
 use bdk_bitcoind_rpc::{
@@ -195,7 +208,74 @@ pub enum Commands {
         #[clap(flatten)]
         rpc_args: RpcArgs,
     },
+    NewPsbt {
+        /// Amount to send in satoshis
+        value: u64,
+        /// Recipient address
+        address: Option<Address<NetworkUnchecked>>,
+        /// Silent payment code from which you want to derive the script pub key
+        #[clap(long = "code")]
+        silent_payment_code: Option<String>,
+        /// Set max absolute timelock (from consensus value)
+        #[clap(long, short)]
+        after: Option<u32>,
+        /// Set max relative timelock (from consensus value)
+        #[clap(long, short)]
+        older: Option<u32>,
+        /// Coin selection algorithm
+        #[clap(long, short, default_value = "bnb")]
+        coin_select: CoinSelectionAlgo,
+        /// Debug print the PSBT
+        #[clap(long, short)]
+        debug: bool,
+        /// The descriptor of the spending key needed to generate the shared secret in combination with tx inputs
+        #[clap(long = "spend", env = "SPEND_DESCRIPTOR")]
+        spend_descriptor: String,
+    },
     Balance,
+}
+
+#[derive(Clone, Debug, Default)]
+pub enum CoinSelectionAlgo {
+    LargestFirst,
+    SmallestFirst,
+    OldestFirst,
+    NewestFirst,
+    #[default]
+    BranchAndBound,
+}
+
+impl FromStr for CoinSelectionAlgo {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use CoinSelectionAlgo::*;
+        Ok(match s {
+            "largest-first" => LargestFirst,
+            "smallest-first" => SmallestFirst,
+            "oldest-first" => OldestFirst,
+            "newest-first" => NewestFirst,
+            "bnb" => BranchAndBound,
+            unknown => bail!("unknown coin selection algorithm '{}'", unknown),
+        })
+    }
+}
+
+impl std::fmt::Display for CoinSelectionAlgo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use CoinSelectionAlgo::*;
+        write!(
+            f,
+            "{}",
+            match self {
+                LargestFirst => "largest-first",
+                SmallestFirst => "smallest-first",
+                OldestFirst => "oldest-first",
+                NewestFirst => "newest-first",
+                BranchAndBound => "bnb",
+            }
+        )
+    }
 }
 
 #[inline]
@@ -214,6 +294,25 @@ fn main() -> anyhow::Result<()> {
     } = match init_or_load(DB_MAGIC, DB_PATH)? {
         Some(init) => init,
         None => return Ok(()),
+    };
+
+    let fake_address = {
+        let secp = Secp256k1::verification_only();
+        let scan_key = UntweakedPublicKey::from(sp_code.scan);
+
+        Address::p2tr(&secp, scan_key, None, sp_code.network)
+    };
+
+    let change_fake_script = {
+        let secp = Secp256k1::verification_only();
+        let change_label_key = UntweakedPublicKey::from(
+            *indexes
+                .num_to_label
+                .get(&CHANGE_LABEL)
+                .expect("change label should always exist"),
+        );
+
+        ScriptBuf::new_p2tr(&secp, change_label_key, None)
     };
 
     match args.command {
@@ -517,6 +616,216 @@ fn main() -> anyhow::Result<()> {
                     ("untrusted", balance.untrusted_pending),
                 ],
             )?;
+        }
+        Commands::NewPsbt {
+            value,
+            address,
+            after: _,
+            older: _,
+            coin_select,
+            debug: _,
+            silent_payment_code,
+            spend_descriptor,
+        } => {
+            let chain = &*chain.lock().unwrap();
+            let graph = &*graph.lock().unwrap();
+
+            let chain_tip = chain.get_chain_tip()?;
+            let mut sp_codes = <Vec<(ScriptBuf, SilentPaymentCode)>>::new();
+            let final_address = match (&silent_payment_code, address) {
+                (Some(sp_code), None) => {
+                    sp_codes.push((
+                        fake_address.script_pubkey(),
+                        SilentPaymentCode::try_from(sp_code.as_str())?,
+                    ));
+                    fake_address.clone()
+                }
+                (None, Some(address)) => address.require_network(sp_code.network)?,
+                _ => bail!("mixed silent payments not yet allowed"),
+            };
+            let outpoints = indexes.spouts.clone().into_iter().map(|(x, y)| (y, x));
+            #[allow(clippy::type_complexity)]
+            let mut utxos = graph
+                .try_filter_chain_unspents(chain, chain_tip, outpoints)?
+                .filter_map(
+                    |(spout, full_txo)| -> Option<
+                        Result<
+                            (SpOut, FullTxOut<ConfirmationBlockTime>),
+                            <bdk_chain::local_chain::LocalChain as bdk_chain::ChainOracle>::Error,
+                        >,
+                    > {
+                        if full_txo.is_mature(chain_tip.height) {
+                            Some(Ok((spout, full_txo)))
+                        } else {
+                            None
+                        }
+                    },
+                )
+                .collect::<Result<Vec<(SpOut, FullTxOut<ConfirmationBlockTime>)>, _>>()?;
+
+            match coin_select {
+                CoinSelectionAlgo::LargestFirst => {
+                    utxos.sort_by_key(|(_, utxo)| cmp::Reverse(utxo.txout.value))
+                }
+                CoinSelectionAlgo::SmallestFirst => utxos.sort_by_key(|(_, utxo)| utxo.txout.value),
+                CoinSelectionAlgo::OldestFirst => {
+                    utxos.sort_by_key(|(_, utxo)| utxo.chain_position)
+                }
+                CoinSelectionAlgo::NewestFirst => {
+                    utxos.sort_by_key(|(_, utxo)| cmp::Reverse(utxo.chain_position))
+                }
+                CoinSelectionAlgo::BranchAndBound => utxos.shuffle(&mut rng()),
+            }
+
+            // build candidate set
+            let candidates: Vec<Candidate> = utxos
+                .iter()
+                .map(|(_plan, utxo)| {
+                    Candidate::new(
+                        utxo.txout.value.to_sat(),
+                        // key spend path:
+                        // scriptSigLen(4) + stackLen(1) + stack[Sig]Len(1) + stack[Sig](65)
+                        4 + 1 + 1 + 65,
+                        true,
+                    )
+                })
+                .collect();
+
+            // create recipient output(s)
+            let mut outputs = vec![TxOut {
+                value: Amount::from_sat(value),
+                script_pubkey: final_address.script_pubkey(),
+            }];
+
+            let mut change_output = TxOut {
+                value: Amount::ZERO,
+                script_pubkey: change_fake_script.clone(),
+            };
+
+            let min_drain_value = change_fake_script.minimal_non_dust().to_sat();
+
+            let target = Target {
+                outputs: TargetOutputs::fund_outputs(
+                    outputs
+                        .iter()
+                        .map(|output| (output.weight().to_wu(), output.value.to_sat())),
+                ),
+                fee: TargetFee::default(),
+            };
+
+            let change_policy = ChangePolicy {
+                min_value: min_drain_value,
+                drain_weights: DrainWeights::TR_KEYSPEND,
+            };
+
+            // run coin selection
+            let mut selector = CoinSelector::new(&candidates);
+            match coin_select {
+                CoinSelectionAlgo::BranchAndBound => {
+                    let metric = LowestFee {
+                        target,
+                        long_term_feerate: FeeRate::from_sat_per_vb(10.0),
+                        change_policy,
+                    };
+                    match selector.run_bnb(metric, 10_000) {
+                        Ok(_) => {}
+                        Err(_) => selector
+                            .select_until_target_met(target)
+                            .context("selecting coins")?,
+                    }
+                }
+                _ => selector
+                    .select_until_target_met(target)
+                    .context("selecting coins")?,
+            }
+
+            // get the selected plan utxos
+            let selected: Vec<(SpOut, FullTxOut<ConfirmationBlockTime>)> =
+                selector.apply_selection(&utxos).cloned().collect();
+
+            // if the selection tells us to use change and the change value is sufficient, we add it as an output
+            let drain = selector.drain(target, change_policy);
+            if drain.value > min_drain_value {
+                change_output.value = Amount::from_sat(drain.value);
+                outputs.push(change_output.clone());
+                let change_label_scalar = indexes
+                    .get_label(CHANGE_LABEL)
+                    .expect("change label should always exist");
+                let change_spcode = sp_code.add_label(change_label_scalar)?;
+                sp_codes.push((change_output.script_pubkey, change_spcode));
+            }
+
+            let unsigned_tx = Transaction {
+                version: Version::TWO,
+                lock_time: absolute::LockTime::from_height(chain.get_chain_tip()?.height)?,
+                input: selected
+                    .iter()
+                    .map(|(_sp_out, utxo)| TxIn {
+                        previous_output: utxo.outpoint,
+                        sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                        ..Default::default()
+                    })
+                    .collect(),
+                output: outputs.to_vec(),
+            };
+            // update psbt with plan
+            let mut psbt = Psbt::from_unsigned_tx(unsigned_tx)?;
+            for (i, (_sp_out, utxo)) in selected.iter().enumerate() {
+                let psbt_input = &mut psbt.inputs[i];
+                psbt_input.witness_utxo = Some(utxo.txout.clone());
+            }
+
+            if !sp_codes.is_empty() {
+                let spend_sk = get_sk_from_sp_descriptor(spend_descriptor)?;
+                let spouts = selected.into_iter().map(|x| x.0).collect::<Vec<SpOut>>();
+                let just_sp_codes = sp_codes
+                    .clone()
+                    .iter()
+                    .map(|x| x.1.clone())
+                    .collect::<Vec<SilentPaymentCode>>();
+                let just_sp_script_pubkeys = sp_codes
+                    .clone()
+                    .iter()
+                    .map(|x| x.0.clone())
+                    .collect::<Vec<ScriptBuf>>();
+                let sp_spks = SpSender::new(spend_sk).send_to(&spouts, &just_sp_codes)?;
+                // WARN: collect iterator to avoid consuming it while checking for outputs
+                let spk_to_sp_spk = just_sp_script_pubkeys
+                    .iter()
+                    .zip(sp_spks)
+                    .collect::<Vec<(&ScriptBuf, ScriptBuf)>>();
+
+                let new_outputs = outputs
+                    .clone()
+                    .into_iter()
+                    .map(|x| {
+                        // WARN: use iter() here instead of directly using an iterator to keep all
+                        // the values in the spk_to_sp_spk collection, instead of consuming the
+                        // full iterator and miss all scriptpubkeys after the first iteration.
+                        if let Some(sp_spk) = spk_to_sp_spk.iter().find_map(|(spk, sp_spk)| {
+                            if x.script_pubkey == **spk {
+                                Some(sp_spk)
+                            } else {
+                                None
+                            }
+                        }) {
+                            TxOut {
+                                value: x.value,
+                                script_pubkey: sp_spk.clone(),
+                            }
+                        } else {
+                            x
+                        }
+                    })
+                    .collect::<Vec<TxOut>>();
+                psbt.unsigned_tx.output = new_outputs;
+            }
+            // print base64 encoded psbt
+            let fee = psbt.fee()?.to_sat();
+            let mut obj = serde_json::Map::new();
+            obj.insert("psbt".to_string(), json!(psbt.to_string()));
+            obj.insert("fee".to_string(), json!(fee));
+            println!("{}", serde_json::to_string_pretty(&obj)?);
         }
     };
 
