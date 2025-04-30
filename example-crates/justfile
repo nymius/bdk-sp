@@ -343,12 +343,12 @@ bdk_init:
   exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
   set -euxo pipefail
   KEYS=$(cargo -q run --bin example_electrum generate)
-  if [ ! -f /tmp/.bdk_descriptor ]; then
-    echo $KEYS | jq -r ".private_internal_descriptor" | tee /tmp/.bdk_descriptor
+  if [ ! -f .bdk_descriptor ]; then
+    echo $KEYS | jq -r ".private_internal_descriptor" | tee .bdk_descriptor
   fi
 
-  if [ ! -f /tmp/.bdk_change_descriptor ]; then
-    echo $KEYS | jq -r ".private_external_descriptor" | tee /tmp/.bdk_change_descriptor
+  if [ ! -f .bdk_change_descriptor ]; then
+    echo $KEYS | jq -r ".private_external_descriptor" | tee .bdk_change_descriptor
   fi
 
 [group("BDK")]
@@ -359,8 +359,8 @@ bdk_electrum COMMAND="help" *ARGS="": bdk_init
   short_date=$(/bin/date +%m%d%y)
   exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
   set -euxo pipefail
-  export DESCRIPTOR=$(cat /tmp/.bdk_descriptor)
-  export CHANGE_DESCRIPTOR=$(cat /tmp/.bdk_change_descriptor)
+  export DESCRIPTOR=$(cat .bdk_descriptor)
+  export CHANGE_DESCRIPTOR=$(cat .bdk_change_descriptor)
   export NETWORK="regtest"
   cargo -q run --bin example_electrum {{COMMAND}} {{ARGS}}
 
@@ -371,8 +371,8 @@ bdk_sp COMMAND="help" *ARGS="": bdk_init
   short_date=$(/bin/date +%m%d%y)
   exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
   set -euxo pipefail
-  export DESCRIPTOR=$(cat /tmp/.bdk_descriptor)
-  export CHANGE_DESCRIPTOR=$(cat /tmp/.bdk_change_descriptor)
+  export DESCRIPTOR=$(cat .bdk_descriptor)
+  export CHANGE_DESCRIPTOR=$(cat .bdk_change_descriptor)
   export RPC_URL=http://127.0.0.1:18443
   export RPC_USER=__cookie__
   export RPC_PASS=$(just cookie)
@@ -380,8 +380,8 @@ bdk_sp COMMAND="help" *ARGS="": bdk_init
     SP_KEYS=$(cargo -q run --bin example_silentpayments {{COMMAND}} {{ARGS}})
     SCAN_DESCRIPTOR=$(echo $SP_KEYS | jq -r '.private_scan_descriptor')
     SPEND_DESCRIPTOR=$(echo $SP_KEYS | jq -r '.private_spend_descriptor')
-    echo $SCAN_DESCRIPTOR > /tmp/.bdk_sp_private_scan_descriptor
-    echo $SPEND_DESCRIPTOR > /tmp/.bdk_sp_private_spend_descriptor
+    echo $SCAN_DESCRIPTOR > .bdk_sp_private_scan_descriptor
+    echo $SPEND_DESCRIPTOR > .bdk_sp_private_spend_descriptor
     echo $SP_KEYS
   else
     cargo -q run --bin example_silentpayments {{COMMAND}} {{ARGS}}
@@ -394,8 +394,8 @@ bdk_rpc COMMAND="help" *ARGS="": bdk_init
   short_date=$(/bin/date +%m%d%y)
   exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
   set -euxo pipefail
-  export DESCRIPTOR=$(cat /tmp/.bdk_descriptor)
-  export CHANGE_DESCRIPTOR=$(cat /tmp/.bdk_change_descriptor)
+  export DESCRIPTOR=$(cat .bdk_descriptor)
+  export CHANGE_DESCRIPTOR=$(cat .bdk_change_descriptor)
   export NETWORK="regtest"
   export RPC_URL=http://127.0.0.1:18443
   export RPC_USER=__cookie__
@@ -415,19 +415,19 @@ bdk_sp_new_example:
   export RPC_PASS=$(just cookie)
 
   SP_KEYS=$(just bdk_sp generate)
-  if [ -f /tmp/.bdk_sp_private_scan_descriptor ] && [ -f /tmp/.bdk_sp_private_spend_descriptor ]; then
+  if [ -f .bdk_sp_private_scan_descriptor ] && [ -f .bdk_sp_private_spend_descriptor ]; then
 
-    if  [ -f ./.bdk_example_silentpayments.db ]; then
+    if  [ -f .bdk_example_silentpayments.db ]; then
       rm -rf .bdk_example_silentpayments.db;
     fi
 
-    export SCAN_DESCRIPTOR=$(cat /tmp/.bdk_sp_private_scan_descriptor)
-    export SPEND_DESCRIPTOR=$(cat /tmp/.bdk_sp_private_spend_descriptor)
+    export SCAN_DESCRIPTOR=$(cat .bdk_sp_private_scan_descriptor)
+    export SPEND_DESCRIPTOR=$(cat .bdk_sp_private_spend_descriptor)
     cargo -q run --bin example_silentpayments init --network regtest --scan "$SCAN_DESCRIPTOR" --spend "$SPEND_DESCRIPTOR"
     SP_CODE_WITH_LABEL=$(cargo -q run --bin example_silentpayments code --label 32 --scan "$SCAN_DESCRIPTOR" | jq -r ".labelled_silent_payment_code")
     SP_CODE_WITHOUT_LABEL=$(cargo -q run --bin example_silentpayments code | jq -r ".silent_payment_code")
 
-    if  [ -f ./.bdk_example_electrum.db ]; then
+    if  [ -f .bdk_example_electrum.db ]; then
       rm -rf .bdk_example_electrum.db;
     fi
 
@@ -471,10 +471,10 @@ bdk_sp_new_example:
 
   just stop
 
-  if  [ -f ./.bdk_example_electrum.db ]; then
+  if  [ -f .bdk_example_electrum.db ]; then
     rm -rf .bdk_example_electrum.db;
   fi
 
-  if  [ -f ./.bdk_example_silentpayments.db ]; then
+  if  [ -f .bdk_example_silentpayments.db ]; then
     rm -rf .bdk_example_silentpayments.db;
   fi
