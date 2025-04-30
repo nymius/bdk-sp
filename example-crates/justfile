@@ -5,6 +5,20 @@ export DEBUG_PREFIX := "just_debug"
 default:
   just --list --unsorted
 
+[group("Docs")]
+[doc("Record execution flow.")]
+recscreen FLOW OUT *FLAGS:
+  #!/usr/bin/env bash
+  just stop
+  TEMP_DIR=$(mktemp -d)
+  exec {fd}< {{FLOW}}
+  echo $TEMP_DIR
+  OUT_FILE=$(basename --suffix=".cast" {{OUT}})
+  asciinema-automation -aa "--cols 180 --overwrite -c 'env -C $TEMP_DIR -u HISTFILE PS1=\"\$ \" bash --noprofile --norc'" <(cat <&$fd) "$OUT_FILE.commented.cast" {{FLAGS}}
+  asciinema-automation -aa "--cols 180 --overwrite -c 'env -C $TEMP_DIR -u HISTFILE PS1=\"\$ \" bash --noprofile --norc'" <(cat <&$fd | sed '/^#$ send #.*/d') "$OUT_FILE.live.cast" {{FLAGS}}
+  just stop
+  rm -rf $TEMP_DIR
+
 [doc("Remove all past debug files older than today.")]
 clean:
   find . -maxdepth 1 ! -name "just_debug.$(/bin/date +%m%d%y).log" -name "just_debug.*\.log" -type f -exec rm -f {} +
