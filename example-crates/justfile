@@ -128,7 +128,7 @@ create FORCE="false" TAG="1.0.0" NAME="RegtestBitcoinEnv": (build TAG)
 
     podman --connection regtest create --name {{NAME}} --publish 18443:18443 --publish 18444:18444 --publish 3002:3002 --publish 3003:3003 --publish 60401:60401 localhost/regtest:{{TAG}}
 
-[group("Services")]
+[group("Podman")]
 [doc("Launch ephemeral environment")]
 start STATE="persistent":
   #!/usr/bin/env bash
@@ -164,7 +164,7 @@ start STATE="persistent":
   just podcmd "electrs -vvvv --daemon-dir $ENVDIR --db-dir $ENVDIR --http-addr 0.0.0.0:3002 --electrum-rpc-addr 0.0.0.0:60401 --network=regtest --lightmode >> $ESPLORA_LOG 2>&1 &"
   sleep 10
 
-[group("Services")]
+[group("Podman")]
 [doc("Get path to services state directory")]
 envpath:
   #!/usr/bin/env bash
