@@ -9,15 +9,18 @@ default:
 [doc("Record execution flow.")]
 recscreen FLOW OUT *FLAGS:
   #!/usr/bin/env bash
+  record_screen() {
+    TEMP_DIR=$(mktemp -d)
+    asciinema-automation -aa "--cols 180 --overwrite -c 'env -C $TEMP_DIR -u HISTFILE PS1=\"\$ \" bash --noprofile --norc'" <(cat <&$1) $2 $3
+    just stop
+    rm -rf $TEMP_DIR
+  }
   just stop
-  TEMP_DIR=$(mktemp -d)
-  exec {fd}< {{FLOW}}
-  echo $TEMP_DIR
-  OUT_FILE=$(basename --suffix=".cast" {{OUT}})
-  asciinema-automation -aa "--cols 180 --overwrite -c 'env -C $TEMP_DIR -u HISTFILE PS1=\"\$ \" bash --noprofile --norc'" <(cat <&$fd) "$OUT_FILE.commented.cast" {{FLAGS}}
-  asciinema-automation -aa "--cols 180 --overwrite -c 'env -C $TEMP_DIR -u HISTFILE PS1=\"\$ \" bash --noprofile --norc'" <(cat <&$fd | sed '/^#$ send #.*/d') "$OUT_FILE.live.cast" {{FLAGS}}
-  just stop
-  rm -rf $TEMP_DIR
+  OUT_FILE=$(readlink -f {{OUT}} | cut -d "." -f1)
+  exec {fd1}< {{FLOW}}
+  exec {fd2}< <(cat {{FLOW}} | sed '/^#$ send #.*/d')
+  record_screen $fd1 "${OUT_FILE}.commented.cast" {{FLAGS}}
+  record_screen $fd2 "${OUT_FILE}.live.cast" {{FLAGS}}
 
 [doc("Remove all past debug files older than today.")]
 clean:
