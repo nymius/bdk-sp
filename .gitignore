@@ -1,0 +1,10 @@
+/target
+Cargo.lock
+/.vscode
+
+*.swp
+.idea
+
+# Example persisted files.
+*.db
+*.sqlite*
