@@ -2,6 +2,11 @@
 name = "bdk_silentpayments"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.63"
+homepage = "https://bitcoindevkit.org"
+repository = "https://github.com/bitcoindevkit/bdk_silentpayments"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
 
 [dependencies]
 bitcoin = { version = "0.32.0", default-features = true }
@@ -15,3 +20,6 @@ miniscript = { version = "12.0.0", default-features = true }
 
 [features]
 serde = ["dep:serde", "bitcoin/serde"]
+
+[lints]
+workspace = true

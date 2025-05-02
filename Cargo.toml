@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = [
+    "silentpayments",
+    "example-crates/example_silentpayments",
+]
+
+[workspace.package]
+authors = ["Bitcoin Dev Kit Developers"]
+
+[workspace.lints.clippy]
+print_stdout = "deny"
+print_stderr = "deny"
