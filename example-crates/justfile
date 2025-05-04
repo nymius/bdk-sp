@@ -382,11 +382,11 @@ bdk_init:
   set -euxo pipefail
   KEYS=$(just podcmd example_electrum generate)
   if [ ! -f .bdk_descriptor ]; then
-    echo $KEYS | jq -r ".private_internal_descriptor" | tee .bdk_descriptor
+    echo $KEYS | jq -r ".private_external_descriptor" | tee .bdk_descriptor
   fi
 
   if [ ! -f .bdk_change_descriptor ]; then
-    echo $KEYS | jq -r ".private_external_descriptor" | tee .bdk_change_descriptor
+    echo $KEYS | jq -r ".private_internal_descriptor" | tee .bdk_change_descriptor
   fi
 
 [group("BDK")]
