@@ -381,12 +381,12 @@ bdk_init:
   exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
   set -euxo pipefail
   KEYS=$(just podcmd example_electrum generate)
-  if [ ! -f .bdk_descriptor ]; then
-    echo $KEYS | jq -r ".private_external_descriptor" | tee .bdk_descriptor
+  if [ ! -f .bdk_external ]; then
+    echo $KEYS | jq -r ".private_external_descriptor" | tee .bdk_external
   fi
 
-  if [ ! -f .bdk_change_descriptor ]; then
-    echo $KEYS | jq -r ".private_internal_descriptor" | tee .bdk_change_descriptor
+  if [ ! -f .bdk_internal ]; then
+    echo $KEYS | jq -r ".private_internal_descriptor" | tee .bdk_internal
   fi
 
 [group("BDK")]
@@ -403,8 +403,8 @@ bdk *ARGS="": bdk_init
     echo "Container is not running"
   else
     podman --connection regtest exec RegtestBitcoinEnv env \
-    DESCRIPTOR=$(cat .bdk_descriptor) \
-    CHANGE_DESCRIPTOR=$(cat .bdk_change_descriptor) \
+    DESCRIPTOR=$(cat .bdk_external) \
+    CHANGE_DESCRIPTOR=$(cat .bdk_internal) \
     NETWORK="regtest" \
     RPC_URL=http://127.0.0.1:18443 \
     RPC_USER=__cookie__ \
@@ -419,8 +419,8 @@ bdk_sp COMMAND="help" *ARGS="": bdk_init
   short_date=$(/bin/date +%m%d%y)
   exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
   set -euxo pipefail
-  export DESCRIPTOR=$(cat .bdk_descriptor)
-  export CHANGE_DESCRIPTOR=$(cat .bdk_change_descriptor)
+  export DESCRIPTOR=$(cat .bdk_external)
+  export CHANGE_DESCRIPTOR=$(cat .bdk_internal)
   export RPC_URL=http://127.0.0.1:18443
   export RPC_USER=__cookie__
   export RPC_PASS=$(just cookie)
