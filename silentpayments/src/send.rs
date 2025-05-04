@@ -4,7 +4,7 @@ use bitcoin::TapTweakHash;
 use bitcoin::{
     bip32::{DerivationPath, Xpriv},
     hashes::{Hash, HashEngine},
-    key::{Secp256k1, Parity, TweakedPublicKey},
+    key::{Parity, Secp256k1, TweakedPublicKey},
     secp256k1::{PublicKey, Scalar, SecretKey},
     OutPoint, ScriptBuf,
 };
