@@ -381,12 +381,12 @@ bdk_init:
   exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
   set -euxo pipefail
   KEYS=$(just podcmd example_electrum generate)
-  if [ ! -f .bdk_external ]; then
-    echo $KEYS | jq -r ".private_external_descriptor" | tee .bdk_external
+  if [ ! -f .bdk_external.desc ]; then
+    echo $KEYS | jq -r ".private_external_descriptor" | tee .bdk_external.desc
   fi
 
-  if [ ! -f .bdk_internal ]; then
-    echo $KEYS | jq -r ".private_internal_descriptor" | tee .bdk_internal
+  if [ ! -f .bdk_internal.desc ]; then
+    echo $KEYS | jq -r ".private_internal_descriptor" | tee .bdk_internal.desc
   fi
 
 [group("BDK")]
@@ -403,8 +403,8 @@ bdk *ARGS="": bdk_init
     echo "Container is not running"
   else
     podman --connection regtest exec RegtestBitcoinEnv env \
-    DESCRIPTOR=$(cat .bdk_external) \
-    CHANGE_DESCRIPTOR=$(cat .bdk_internal) \
+    DESCRIPTOR=$(cat .bdk_external.desc) \
+    CHANGE_DESCRIPTOR=$(cat .bdk_internal.desc) \
     NETWORK="regtest" \
     RPC_URL=http://127.0.0.1:18443 \
     RPC_USER=__cookie__ \
@@ -419,8 +419,8 @@ bdk_sp COMMAND="help" *ARGS="": bdk_init
   short_date=$(/bin/date +%m%d%y)
   exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
   set -euxo pipefail
-  export DESCRIPTOR=$(cat .bdk_external)
-  export CHANGE_DESCRIPTOR=$(cat .bdk_internal)
+  export DESCRIPTOR=$(cat .bdk_external.desc)
+  export CHANGE_DESCRIPTOR=$(cat .bdk_internal.desc)
   export RPC_URL=http://127.0.0.1:18443
   export RPC_USER=__cookie__
   export RPC_PASS=$(just cookie)
@@ -428,8 +428,8 @@ bdk_sp COMMAND="help" *ARGS="": bdk_init
     SP_KEYS=$(cargo -q run --bin example_silentpayments {{COMMAND}} {{ARGS}})
     SCAN_DESCRIPTOR=$(echo $SP_KEYS | jq -r '.private_scan_descriptor')
     SPEND_DESCRIPTOR=$(echo $SP_KEYS | jq -r '.private_spend_descriptor')
-    echo $SCAN_DESCRIPTOR > .bdk_sp_private_scan_descriptor
-    echo $SPEND_DESCRIPTOR > .bdk_sp_private_spend_descriptor
+    echo $SCAN_DESCRIPTOR > .bdk_sp_private_scan.desc
+    echo $SPEND_DESCRIPTOR > .bdk_sp_private_spend.desc
     echo $SP_KEYS
   else
     cargo -q run --bin example_silentpayments {{COMMAND}} {{ARGS}}
@@ -449,14 +449,14 @@ bdk_sp_new_example:
   export RPC_PASS=$(just cookie)
 
   SP_KEYS=$(just bdk_sp generate)
-  if [ -f .bdk_sp_private_scan_descriptor ] && [ -f .bdk_sp_private_spend_descriptor ]; then
+  if [ -f .bdk_sp_private_scan.desc ] && [ -f .bdk_sp_private_spend.desc ]; then
 
     if  [ -f .bdk_example_silentpayments.db ]; then
       rm -rf .bdk_example_silentpayments.db;
     fi
 
-    export SCAN_DESCRIPTOR=$(cat .bdk_sp_private_scan_descriptor)
-    export SPEND_DESCRIPTOR=$(cat .bdk_sp_private_spend_descriptor)
+    export SCAN_DESCRIPTOR=$(cat .bdk_sp_private_scan.desc)
+    export SPEND_DESCRIPTOR=$(cat .bdk_sp_private_spend.desc)
     cargo -q run --bin example_silentpayments init --network regtest --scan "$SCAN_DESCRIPTOR" --spend "$SPEND_DESCRIPTOR"
     SP_CODE_WITH_LABEL=$(cargo -q run --bin example_silentpayments code --label 32 --scan "$SCAN_DESCRIPTOR" | jq -r ".labelled_silent_payment_code")
     SP_CODE_WITHOUT_LABEL=$(cargo -q run --bin example_silentpayments code | jq -r ".silent_payment_code")
