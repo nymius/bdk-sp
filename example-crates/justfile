@@ -110,10 +110,31 @@ build TAG="1.0.0" VERSION="29.0" RELEASE="29.0" ARCH="x86_64-linux-gnu": machine
     RUN cp target/release/fbbe /build
     RUN rm -rf /fbbe
 
+    FROM rust:1.81 AS rust-bdk
+    RUN cargo install sccache --locked
+    ENV RUSTC_WRAPPER=sccache SCCACHE_DIR=/sccache
+
+    # Create directory for building
+    RUN mkdir -p /build
+
+    # Build bdk example crates
+    RUN mkdir -p /bdk
+    WORKDIR /bdk
+    RUN git clone --branch feat/silent-payments-with-rust-silentpayments https://github.com/nymius/bdk .
+    # Remove directories at the end to create smaller images
+    RUN --mount=type=cache,target=$SCCACHE_DIR,sharing=locked cargo build --release
+    RUN cp target/release/example_bitcoind_rpc_polling /build
+    RUN cp target/release/example_electrum /build
+    RUN cp target/release/example_esplora /build
+    RUN rm -rf /bdk
+
     FROM debian:bookworm-slim
     ARG BITCOIN_VERSION=26.0
     COPY --from=rust-builder /build/electrs /usr/local/bin
     COPY --from=rust-builder /build/fbbe /usr/local/bin
+    COPY --from=rust-bdk build/example_bitcoind_rpc_polling /usr/local/bin
+    COPY --from=rust-bdk build/example_electrum /usr/local/bin
+    COPY --from=rust-bdk build/example_esplora /usr/local/bin
     COPY --from=debian-builder /bitcoin/bitcoin-${BITCOIN_VERSION}/bin/bitcoin-util /usr/local/bin
     COPY --from=debian-builder /bitcoin/bitcoin-${BITCOIN_VERSION}/bin/bitcoin-cli /usr/local/bin
     COPY --from=debian-builder /bitcoin/bitcoin-${BITCOIN_VERSION}/bin/bitcoin-tx /usr/local/bin
@@ -359,7 +380,7 @@ bdk_init:
   short_date=$(/bin/date +%m%d%y)
   exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
   set -euxo pipefail
-  KEYS=$(cargo -q run --bin example_electrum generate)
+  KEYS=$(just podcmd example_electrum generate)
   if [ ! -f .bdk_descriptor ]; then
     echo $KEYS | jq -r ".private_internal_descriptor" | tee .bdk_descriptor
   fi
@@ -369,17 +390,27 @@ bdk_init:
   fi
 
 [group("BDK")]
-[doc("Send a command to bdk example_electrum")]
+[doc("Send a command to bdk installed example binaries")]
 [positional-arguments]
-bdk_electrum COMMAND="help" *ARGS="": bdk_init
+bdk *ARGS="": bdk_init
   #!/usr/bin/env bash
   short_date=$(/bin/date +%m%d%y)
   exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
   set -euxo pipefail
-  export DESCRIPTOR=$(cat .bdk_descriptor)
-  export CHANGE_DESCRIPTOR=$(cat .bdk_change_descriptor)
-  export NETWORK="regtest"
-  cargo -q run --bin example_electrum {{COMMAND}} {{ARGS}}
+
+  containers_running=$(podman machine ls --format json | jq -r .[0].Running)
+  if [ "$containers_running" = "false" ]; then
+    echo "Container is not running"
+  else
+    podman --connection regtest exec RegtestBitcoinEnv env \
+    DESCRIPTOR=$(cat .bdk_descriptor) \
+    CHANGE_DESCRIPTOR=$(cat .bdk_change_descriptor) \
+    NETWORK="regtest" \
+    RPC_URL=http://127.0.0.1:18443 \
+    RPC_USER=__cookie__ \
+    RPC_PASS=$(just cookie) \
+    $@
+  fi
 
 [group("BDK")]
 [doc("Send a command to bdk example_silentpayments")]
@@ -404,21 +435,6 @@ bdk_sp COMMAND="help" *ARGS="": bdk_init
     cargo -q run --bin example_silentpayments {{COMMAND}} {{ARGS}}
   fi
 
-[group("BDK")]
-[doc("Send a command to bdk example_bitcoind_rpc_polling")]
-bdk_rpc COMMAND="help" *ARGS="": bdk_init
-  #!/usr/bin/env bash
-  short_date=$(/bin/date +%m%d%y)
-  exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
-  set -euxo pipefail
-  export DESCRIPTOR=$(cat .bdk_descriptor)
-  export CHANGE_DESCRIPTOR=$(cat .bdk_change_descriptor)
-  export NETWORK="regtest"
-  export RPC_URL=http://127.0.0.1:18443
-  export RPC_USER=__cookie__
-  export RPC_PASS=$(just cookie)
-  cargo -q run --bin example_bitcoind_rpc_polling {{COMMAND}} {{ARGS}}
-
 [group("BDK flows")]
 [doc("Send from BIP32 wallet to BIP352 Wallet using no labels and labels.")]
 bdk_sp_new_example:
@@ -426,6 +442,7 @@ bdk_sp_new_example:
 
   just stop
   just start "ephemeral"
+  just mine 1
 
   export RPC_URL=http://127.0.0.1:18443
   export RPC_USER=__cookie__
@@ -444,39 +461,39 @@ bdk_sp_new_example:
     SP_CODE_WITH_LABEL=$(cargo -q run --bin example_silentpayments code --label 32 --scan "$SCAN_DESCRIPTOR" | jq -r ".labelled_silent_payment_code")
     SP_CODE_WITHOUT_LABEL=$(cargo -q run --bin example_silentpayments code | jq -r ".silent_payment_code")
 
-    if  [ -f .bdk_example_electrum.db ]; then
-      rm -rf .bdk_example_electrum.db;
+    if just podcmd [ -f .bdk_example_electrum.db ]; then
+      just podcmd rm -rf .bdk_example_electrum.db;
     fi
 
-    just bdk_electrum init
-    just mine 101 $(just bdk_electrum address next | jq -r ".address")
-    just bdk_electrum scan
-    just bdk_electrum sync
+    just bdk example_electrum init
+    just mine 101 $(just bdk example_electrum address next | jq -r ".address")
+    just bdk example_electrum scan
+    just bdk example_electrum sync
     sleep 15
 
-    FAKE_ADDRESS=$(just bdk_electrum address next | jq -r ".address")
+    FAKE_ADDRESS=$(just bdk example_electrum address next | jq -r ".address")
     SAT_AMOUNT=10000
-    ORIGINAL_PSBT=$(just bdk_electrum psbt new $SAT_AMOUNT $FAKE_ADDRESS | jq -r ".psbt")
+    ORIGINAL_PSBT=$(just bdk example_electrum psbt new $SAT_AMOUNT $FAKE_ADDRESS | jq -r ".psbt")
     echo "Original PSBT: $ORIGINAL_PSBT"
 
     SP_PSBT=$(just bdk_sp to-silent-payment --psbt $ORIGINAL_PSBT --code $SP_CODE_WITHOUT_LABEL --amount $SAT_AMOUNT | jq -r ".psbt")
     echo "PSBT with P2TR single output replaced by Silent Payment Code derived output: $SP_PSBT"
-    SIGNED_SP_PSBT=$(just bdk_electrum psbt sign --psbt $SP_PSBT | jq -r ".psbt")
+    SIGNED_SP_PSBT=$(just bdk example_electrum psbt sign --psbt $SP_PSBT | jq -r ".psbt")
     echo "Signed PSBT with silent payment output: $SIGNED_SP_PSBT"
-    SP_TX=$(just bdk_electrum psbt extract $SIGNED_SP_PSBT -b | jq -r ".broadcasted_tx")
+    SP_TX=$(just bdk example_electrum psbt extract $SIGNED_SP_PSBT -b | jq -r ".broadcasted_tx")
     echo "Broadcasted txid: $SP_TX"
     just mine 1
 
-    just bdk_electrum sync
+    just bdk example_electrum sync
 
-    ORIGINAL_PSBT=$(just bdk_electrum psbt new $SAT_AMOUNT $FAKE_ADDRESS | jq -r ".psbt")
+    ORIGINAL_PSBT=$(just bdk example_electrum psbt new $SAT_AMOUNT $FAKE_ADDRESS | jq -r ".psbt")
     echo "Original PSBT: $ORIGINAL_PSBT"
 
     SP_PSBT=$(just bdk_sp to-silent-payment --psbt $ORIGINAL_PSBT --code $SP_CODE_WITH_LABEL --amount $SAT_AMOUNT | jq -r ".psbt")
     echo "PSBT with P2TR single output replaced by Silent Payment Code derived output: $SP_PSBT"
-    SIGNED_SP_PSBT=$(just bdk_electrum psbt sign --psbt $SP_PSBT | jq -r ".psbt")
+    SIGNED_SP_PSBT=$(just bdk example_electrum psbt sign --psbt $SP_PSBT | jq -r ".psbt")
     echo "Signed PSBT with silent payment output: $SIGNED_SP_PSBT"
-    SP_TX=$(just bdk_electrum psbt extract $SIGNED_SP_PSBT -b | jq -r ".broadcasted_tx")
+    SP_TX=$(just bdk example_electrum psbt extract $SIGNED_SP_PSBT -b | jq -r ".broadcasted_tx")
     echo "Broadcasted txid: $SP_TX"
     just mine 1
 
@@ -488,8 +505,8 @@ bdk_sp_new_example:
 
   just stop
 
-  if  [ -f .bdk_example_electrum.db ]; then
-    rm -rf .bdk_example_electrum.db;
+  if just podcmd [ -f .bdk_example_electrum.db ]; then
+    just podcmd rm -rf .bdk_example_electrum.db;
   fi
 
   if  [ -f .bdk_example_silentpayments.db ]; then
