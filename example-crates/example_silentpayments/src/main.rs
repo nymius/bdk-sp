@@ -20,7 +20,7 @@ use bdk_chain::{
 };
 use bdk_file_store::Store;
 
-use bdk_silentpayments::{
+use bdk_sp::{
     bitcoin::{
         bip32::{self, DerivationPath},
         constants,
