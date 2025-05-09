@@ -14,3 +14,6 @@ Cargo.lock
 
 # Descriptor files
 *.desc
+
+# Ignore media (should go into media branch)
+*.gif
