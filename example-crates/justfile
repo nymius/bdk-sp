@@ -200,7 +200,7 @@ start STATE="persistent":
 
   # Start the Esplora and Electrum services
   just podcmd "electrs -vvvv --daemon-dir $ENVDIR --db-dir $ENVDIR --http-addr 0.0.0.0:3002 --electrum-rpc-addr 0.0.0.0:60401 --network=regtest --lightmode >> $ESPLORA_LOG 2>&1 &"
-  sleep 10
+  just mine 1
 
 [group("Podman")]
 [doc("Get path to services state directory")]
@@ -227,6 +227,7 @@ cookie:
 [doc("Mine a block, or mine <BLOCKS> number of blocks.")]
 mine BLOCKS="1" ADDRESS="bcrt1q6gau5mg4ceupfhtyywyaj5ge45vgptvawgg3aq":
   just cli generatetoaddress {{BLOCKS}} {{ADDRESS}}
+  just waitesplora
 
 [group("Bitcoin Core")]
 [doc("Send mining reward to <ADDRESS>")]
@@ -262,6 +263,11 @@ esploralogs:
 [doc("Print block explorer logs to console.")]
 explorerlogs:
   just podcmd "tail -f $(just envpath)/log/fbbe.log"
+
+[group("Esplora")]
+[doc("Wait for esplora to update changes in blockchain")]
+waitesplora:
+  just podcmd "tail -n 1 --pid=\$\$ -f $(just envpath)/log/esplora.log | grep -m 1 -E 'DEBUG applying [0-9]+ new headers from height [0-9]+'"
 
 [group("Podman")]
 [doc("Start your podman machine.")]
@@ -446,7 +452,6 @@ bdk_sp_new_example:
 
   just stop
   just start "ephemeral"
-  just mine 1
 
   export RPC_URL=http://127.0.0.1:18443
   export RPC_USER=__cookie__
@@ -473,7 +478,7 @@ bdk_sp_new_example:
     just mine 101 $(just bdk example_electrum address next | jq -r ".address")
     just bdk example_electrum scan
     just bdk example_electrum sync
-    sleep 15
+    just bdk example_electrum balance
 
     FAKE_ADDRESS=$(just bdk example_electrum address next | jq -r ".address")
     SAT_AMOUNT=10000
