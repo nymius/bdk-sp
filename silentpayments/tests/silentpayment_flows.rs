@@ -17,7 +17,7 @@ use bdk_sp::{
 
 use bdk_testenv::{bitcoincore_rpc::RpcApi, TestEnv};
 use miniscript::{descriptor::DescriptorSecretKey, Descriptor, DescriptorPublicKey};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 const EXTERNAL_DESCRIPTOR: &str = "tr([3794bb41]tprv8ZgxMBicQKsPdnaCtnmcGNFdbPsYasZC8UJpLchusVmFodRNuKB66PhkiPWrfDhyREzj4vXtT9VfCP8mFFgy1MRo5bL4W8Z9SF241Sx4kmq/86'/1'/0'/0/*)#dg6yxkuh";
 const SILENT_PAYMENT_SPEND_PRIVKEY: &str = "cRFcZbp7cAeZGsnYKdgSZwH6drJ3XLnPSGcjLNCpRy28tpGtZR11";
@@ -64,7 +64,7 @@ fn receive_from_taproot_wallet_and_scan_output_successfully() -> anyhow::Result<
 
     let (sp_code, scan_sk, spend_sk) = get_silentpayment_keys();
 
-    let scanner = Scanner::new(scan_sk, sp_code.spend, <HashMap<_, _>>::new());
+    let scanner = Scanner::new(scan_sk, sp_code.spend, <BTreeMap<_, _>>::new());
 
     let found_spouts = scanner.scan_tx(&tx_to_scan, &[txout])?;
 

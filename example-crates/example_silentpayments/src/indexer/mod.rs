@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::iter::Extend;
 
 use bdk_chain::{tx_graph, Merge, TxGraph};
@@ -18,7 +18,7 @@ pub struct SpIndexes {
     pub spouts: BTreeMap<OutPoint, SpOut>,
     pub txid_to_shared_secret: BTreeMap<Txid, PublicKey>,
     pub label_to_output: BTreeSet<(Option<u32>, SpOut)>,
-    pub label_to_tweak: HashMap<PublicKey, (Scalar, u32)>,
+    pub label_to_tweak: BTreeMap<PublicKey, (Scalar, u32)>,
 }
 
 impl SpIndexes {
@@ -79,7 +79,7 @@ pub struct SpIndexesChangeSet {
     pub spouts: BTreeMap<OutPoint, SpOut>,
     pub txid_to_shared_secret: BTreeMap<Txid, PublicKey>,
     pub label_to_output: BTreeSet<(Option<u32>, SpOut)>,
-    pub label_to_tweak: HashMap<PublicKey, (SecretKey, u32)>,
+    pub label_to_tweak: BTreeMap<PublicKey, (SecretKey, u32)>,
 }
 
 impl Merge for SpIndexesChangeSet {

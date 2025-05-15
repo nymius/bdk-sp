@@ -1,5 +1,5 @@
 use crate::hashes::{InputsHash, SharedSecretHash};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use bitcoin::{
     self,
@@ -139,7 +139,7 @@ pub fn extract_pubkey(
 pub struct Scanner {
     scan_sk: SecretKey,
     spend_pk: PublicKey,
-    label_lookup: HashMap<PublicKey, (Scalar, u32)>,
+    label_lookup: BTreeMap<PublicKey, (Scalar, u32)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -178,7 +178,7 @@ impl Scanner {
     pub fn new(
         scan_sk: SecretKey,
         spend_pk: PublicKey,
-        label_lookup: HashMap<PublicKey, (Scalar, u32)>,
+        label_lookup: BTreeMap<PublicKey, (Scalar, u32)>,
     ) -> Self {
         Self {
             scan_sk,
