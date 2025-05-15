@@ -318,7 +318,7 @@ stop:
   else
     just cli stop
     if just podcmd '[ -d /tmp/testenv ]'; then
-      just podcmd rm -rf '.bdk_*'
+      just podcmd "rm -rf .bdk_*"
       just podcmd "rm -rf /tmp/testenv"
     fi
     podman --connection regtest stop RegtestBitcoinEnv
@@ -521,3 +521,5 @@ bdk_sp_new_example:
   if  [ -f .bdk_example_silentpayments.db ]; then
     rm -rf .bdk_example_silentpayments.db;
   fi
+
+  find -name "*.desc" -delete
