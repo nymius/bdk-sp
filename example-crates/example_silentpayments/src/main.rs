@@ -358,18 +358,28 @@ fn main() -> anyhow::Result<()> {
             silent_payment_code,
             rpc_args,
         } => {
+            let chain = &mut *chain.lock().unwrap();
+            let graph = &mut *graph.lock().unwrap();
+
             let start = Instant::now();
             let scan_sk = get_sk_from_sp_descriptor(scan_descriptor)?;
             let silent_payment_code = SilentPaymentCode::try_from(silent_payment_code.as_str())?;
 
             let rpc_client = rpc_args.new_client()?;
-            let chain_tip = chain.lock().unwrap().tip();
             let custom_client = Custom(&rpc_client);
-            let scanner = Scanner::new(scan_sk, silent_payment_code.spend, indexes.label_to_tweak);
-            let mut sp_indexer =
-                SpIndexer::<_, bdk_chain::ConfirmationBlockTime>::new(custom_client, scanner);
+            let scanner = Scanner::new(
+                scan_sk,
+                silent_payment_code.spend,
+                indexes.clone().label_to_tweak,
+            );
+            let mut sp_indexer = SpIndexer::<_, bdk_chain::ConfirmationBlockTime>::new(
+                custom_client,
+                scanner,
+                indexes,
+                graph.clone(),
+            );
 
-            let mut emitter = Emitter::new(&rpc_client, chain_tip, 0);
+            let mut emitter = Emitter::new(&rpc_client, chain.tip(), 0);
             let mut db_stage = ChangeSet::default();
 
             let mut last_db_commit = Instant::now();
@@ -377,8 +387,6 @@ fn main() -> anyhow::Result<()> {
             let mut never_printed = true;
 
             while let Some(emission) = emitter.next_block()? {
-                let mut chain = chain.lock().unwrap();
-                let mut graph = graph.lock().unwrap();
                 let height = emission.block_height();
 
                 db_stage.local_chain.merge(
@@ -461,8 +469,6 @@ fn main() -> anyhow::Result<()> {
             );
 
             if never_printed {
-                let chain = &*chain.lock().unwrap();
-                let graph = &*graph.lock().unwrap();
                 let synced_to = chain.tip();
                 let outpoints = sp_indexer
                     .indexes

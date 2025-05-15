@@ -118,12 +118,17 @@ pub trait PrevoutSource {
 }
 
 impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
-    pub fn new(prevout_source: T, scanner: Scanner) -> Self {
+    pub fn new(
+        prevout_source: T,
+        scanner: Scanner,
+        indexes: SpIndexes,
+        tx_graph: TxGraph<A>,
+    ) -> Self {
         Self {
             prevout_source,
             scanner,
-            indexes: SpIndexes::default(),
-            tx_graph: TxGraph::default(),
+            indexes,
+            tx_graph,
         }
     }
 
