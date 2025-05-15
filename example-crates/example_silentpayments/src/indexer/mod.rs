@@ -12,13 +12,17 @@ use bdk_sp::{
 };
 
 use bdk_bitcoind_rpc::bitcoincore_rpc::{Client, RpcApi};
+use bitcoin::key::TweakedPublicKey;
+use bitcoin::ScriptBuf;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct SpIndexes {
     pub spouts: BTreeMap<OutPoint, SpOut>,
+    pub script_to_spout: BTreeMap<ScriptBuf, SpOut>,
     pub txid_to_shared_secret: BTreeMap<Txid, PublicKey>,
-    pub label_to_output: BTreeSet<(Option<u32>, SpOut)>,
+    pub label_to_spout: BTreeSet<(Option<u32>, SpOut)>,
     pub label_to_tweak: BTreeMap<PublicKey, (Scalar, u32)>,
+    pub num_to_label: BTreeMap<u32, PublicKey>,
 }
 
 impl SpIndexes {
@@ -42,9 +46,11 @@ impl From<SpIndexesChangeSet> for SpIndexes {
             .collect();
         Self {
             spouts: value.spouts,
+            script_to_spout: value.script_to_spout,
             txid_to_shared_secret: value.txid_to_shared_secret,
-            label_to_output: value.label_to_output,
+            label_to_spout: value.label_to_spout,
             label_to_tweak,
+            num_to_label: value.num_to_label,
         }
     }
 }
@@ -66,9 +72,11 @@ impl From<SpIndexes> for SpIndexesChangeSet {
             .collect();
         Self {
             spouts: value.spouts,
+            script_to_spout: value.script_to_spout,
             txid_to_shared_secret: value.txid_to_shared_secret,
-            label_to_output: value.label_to_output,
+            label_to_spout: value.label_to_spout,
             label_to_tweak,
+            num_to_label: value.num_to_label,
         }
     }
 }
@@ -77,9 +85,11 @@ impl From<SpIndexes> for SpIndexesChangeSet {
 #[must_use]
 pub struct SpIndexesChangeSet {
     pub spouts: BTreeMap<OutPoint, SpOut>,
+    pub script_to_spout: BTreeMap<ScriptBuf, SpOut>,
     pub txid_to_shared_secret: BTreeMap<Txid, PublicKey>,
-    pub label_to_output: BTreeSet<(Option<u32>, SpOut)>,
+    pub label_to_spout: BTreeSet<(Option<u32>, SpOut)>,
     pub label_to_tweak: BTreeMap<PublicKey, (SecretKey, u32)>,
+    pub num_to_label: BTreeMap<u32, PublicKey>,
 }
 
 impl Merge for SpIndexesChangeSet {
@@ -87,17 +97,21 @@ impl Merge for SpIndexesChangeSet {
         // We use `extend` instead of `BTreeMap::append` due to performance issues with `append`.
         // Refer to https://github.com/rust-lang/rust/issues/34666#issuecomment-675658420
         self.spouts.extend(other.spouts);
+        self.script_to_spout.extend(other.script_to_spout);
         self.txid_to_shared_secret
             .extend(other.txid_to_shared_secret);
-        self.label_to_output.extend(other.label_to_output);
+        self.label_to_spout.extend(other.label_to_spout);
         self.label_to_tweak.extend(other.label_to_tweak);
+        self.num_to_label.extend(other.num_to_label);
     }
 
     fn is_empty(&self) -> bool {
         self.spouts.is_empty()
+            && self.script_to_spout.is_empty()
             && self.txid_to_shared_secret.is_empty()
-            && self.label_to_output.is_empty()
+            && self.label_to_spout.is_empty()
             && self.label_to_tweak.is_empty()
+            && self.num_to_label.is_empty()
     }
 }
 
@@ -142,38 +156,24 @@ impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
 
     pub fn index_tx(&mut self, tx: &Transaction) -> Result<tx_graph::ChangeSet<A>, SpReceiveError> {
         let prevouts = self.prevout_source.get_tx_prevouts(tx);
+        let txid = tx.compute_txid();
         let ecdh_shared_secret = self
             .scanner
             .compute_shared_secret(tx, &prevouts)
             .expect("infallible");
 
-        // Index labels
-        let label_to_spouts = self
+        let spouts = self
             .scanner
             .scan_txouts(tx, ecdh_shared_secret)
             .flatten()
-            .map(|spout| (spout.label, spout.clone()))
-            .collect::<BTreeSet<(Option<u32>, SpOut)>>();
-
-        self.indexes.label_to_output.extend(label_to_spouts.clone());
-
-        let spouts = label_to_spouts
-            .iter()
-            .map(|(_, spout)| (spout.outpoint, spout.clone()))
-            .collect::<BTreeMap<OutPoint, SpOut>>();
+            .collect::<Vec<SpOut>>();
 
         let mut tx_graph_changeset = tx_graph::ChangeSet::<A>::default();
-
         // Add tx and prevouts to tx_graph
-        if !spouts.is_empty()
-            && !self
-                .indexes
-                .txid_to_shared_secret
-                .contains_key(&tx.compute_txid())
-        {
+        if !spouts.is_empty() && !self.indexes.txid_to_shared_secret.contains_key(&txid) {
             self.indexes
                 .txid_to_shared_secret
-                .insert(tx.compute_txid(), ecdh_shared_secret);
+                .insert(txid, ecdh_shared_secret);
             tx_graph_changeset.merge(self.tx_graph.insert_tx(tx.clone()));
             for (prevout, outpoint) in prevouts
                 .iter()
@@ -182,8 +182,21 @@ impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
                 tx_graph_changeset.merge(self.tx_graph.insert_txout(outpoint, prevout.clone()));
             }
         }
+
         // Index spouts
-        self.indexes.spouts.extend(spouts);
+        for spout in spouts {
+            let x_only_tweaked = TweakedPublicKey::dangerous_assume_tweaked(spout.xonly_pubkey);
+            let script_pubkey = ScriptBuf::new_p2tr_tweaked(x_only_tweaked);
+
+            self.indexes.spouts.insert(spout.outpoint, spout.clone());
+
+            self.indexes
+                .label_to_spout
+                .insert((spout.label, spout.clone()));
+            self.indexes
+                .script_to_spout
+                .insert(script_pubkey, spout.clone());
+        }
 
         Ok(tx_graph_changeset)
     }
