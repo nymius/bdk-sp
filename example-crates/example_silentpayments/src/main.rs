@@ -224,8 +224,6 @@ fn main() -> anyhow::Result<()> {
             label,
             scan_descriptor,
         } => {
-            let secp = Secp256k1::new();
-
             match label {
                 None => {
                     let mut obj = serde_json::Map::new();
