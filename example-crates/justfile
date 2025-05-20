@@ -481,7 +481,6 @@ bdk_sp_new_example:
     just bdk example_electrum init
     just mine 101 $(just bdk example_electrum address next | jq -r ".address")
     just bdk example_electrum scan
-    just bdk example_electrum sync
     just bdk example_electrum balance
 
     FAKE_ADDRESS=$(just bdk example_electrum address next | jq -r ".address")
