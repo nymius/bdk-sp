@@ -453,6 +453,10 @@ bdk_sp_new_example:
   just stop
   just start "ephemeral"
 
+  if just podcmd '[ -f .bdk_example_electrum.db ]'; then
+    just podcmd rm -rf .bdk_example_electrum.db;
+  fi
+
   export RPC_URL=http://127.0.0.1:18443
   export RPC_USER=__cookie__
   export RPC_PASS=$(just cookie)
