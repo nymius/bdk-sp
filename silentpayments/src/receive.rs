@@ -259,105 +259,97 @@ impl Scanner {
     ) -> Result<Vec<SpOut>, SpReceiveError> {
         let ecdh_shared_secret = self.compute_shared_secret(tx, prevouts)?;
         self.scan_txouts(tx, ecdh_shared_secret)
-            .collect::<Result<Vec<SpOut>, SpReceiveError>>()
     }
 
     pub fn scan_txouts<'a>(
         &'a self,
         tx: &'a Transaction,
         ecdh_shared_secret: PublicKey,
-    ) -> impl Iterator<Item = Result<SpOut, SpReceiveError>> + 'a {
-        let secp = Secp256k1::signing_only();
+    ) -> Result<Vec<SpOut>, SpReceiveError> {
+        let secp = Secp256k1::new();
         let txid: Txid = tx.compute_txid();
-        let mut spouts_found = 0_u32;
-
-        (0..tx.output.len())
-            .map_while(move |count| {
-                if count != spouts_found as usize {
-                    return None
-                }
-
-                let t_k = {
-                    let mut eng = SharedSecretHash::engine();
-                    eng.input(&ecdh_shared_secret.serialize());
-                    eng.input(&spouts_found.to_be_bytes());
-                    let hash = SharedSecretHash::from_engine(eng);
-                    SecretKey::from_slice(&hash.to_byte_array()).expect(
-                        "computationally unreachable: only if hash value greater than curve order",
-                    )
-                };
-
-                #[allow(non_snake_case)]
-                let T_k = t_k.public_key(&secp);
-
-                #[allow(non_snake_case)]
-                let P_k = self.spend_pk.combine(&T_k)
-                    .expect("computationally unreachable: can only fail if ecdh_hash = -spend_sk (DLog of spend_pk), but ecdh_hash is the output of a hash function");
-
-                for (idx, txout) in tx.output.iter().enumerate() {
-                    let maybe_spout = self
-                        .get_maybe_spout(t_k, P_k, OutPoint::new(txid, idx as u32), txout)
-                        .transpose();
-                    if maybe_spout.is_some() {
-                        // NOTE: Increment spouts_found even if maybe_spout is Some(Err(_)) to
-                        // break iteration and avoid infinite loops on error
-                        spouts_found += 1;
-                        return maybe_spout
-                    }
-                }
-
-                None
-            })
-    }
-
-    pub fn get_maybe_spout(
-        &self,
-        tweak: SecretKey,
-        sp_pubkey: PublicKey,
-        outpoint: OutPoint,
-        prevout: &TxOut,
-    ) -> Result<Option<SpOut>, SpReceiveError> {
-        let secp = Secp256k1::verification_only();
-
-        let xonly_pubkey = if prevout.script_pubkey.is_p2tr() {
-            XOnlyPublicKey::from_slice(&prevout.script_pubkey.as_bytes()[2..])?
-        } else {
-            return Ok(None);
-        };
-
-        let spout = SpOut {
-            outpoint,
-            tweak,
-            xonly_pubkey,
-            amount: prevout.value,
-            label: None,
-        };
-
-        let pubkeys_with_parity = [Parity::Even, Parity::Odd]
-            .into_iter()
-            .map(|parity| xonly_pubkey.public_key(parity))
-            .collect::<Vec<_>>();
-
-        if pubkeys_with_parity
+        let mut outputs_to_check = tx
+            .output
             .iter()
-            .any(|pubkey| *pubkey == sp_pubkey)
-        {
-            Ok(Some(spout))
-        } else {
-            let neg_sp_pubkey = sp_pubkey.negate(&secp);
-            if let Some((label_tweak, label)) = pubkeys_with_parity
-                .into_iter()
-                .filter_map(|pk| pk.combine(&neg_sp_pubkey).ok())
-                .find_map(|pk_m| self.label_lookup.get(&pk_m))
-            {
-                Ok(Some(SpOut {
-                    tweak: tweak.add_tweak(label_tweak)?,
-                    label: Some(*label),
-                    ..spout
-                }))
-            } else {
-                Ok(None)
+            .filter(|x| x.script_pubkey.is_p2tr())
+            .enumerate()
+            .flat_map(|(idx, txout)| {
+                let xonly_pubkey = XOnlyPublicKey::from_slice(&txout.script_pubkey.as_bytes()[2..])
+                    .expect("p2tr script");
+                [Parity::Even, Parity::Odd].into_iter().map(move |parity| {
+                    (
+                        OutPoint::new(txid, idx as u32),
+                        xonly_pubkey.public_key(parity),
+                        txout.value,
+                    )
+                })
+            })
+            .collect::<Vec<(OutPoint, PublicKey, Amount)>>();
+
+        let mut matched_tweaks = 0_u32;
+        let mut spouts_found = <Vec<SpOut>>::new();
+
+        loop {
+            let t_k = {
+                let mut eng = SharedSecretHash::engine();
+                eng.input(&ecdh_shared_secret.serialize());
+                eng.input(&matched_tweaks.to_be_bytes());
+                let hash = SharedSecretHash::from_engine(eng);
+                SecretKey::from_slice(&hash.to_byte_array()).expect(
+                    "computationally unreachable: only if hash value greater than curve order",
+                )
+            };
+
+            #[allow(non_snake_case)]
+            let T_k = t_k.public_key(&secp);
+
+            #[allow(non_snake_case)]
+            let P_k = self.spend_pk.combine(&T_k).expect("computationally unreachable: can only fail if ecdh_hash = -spend_sk (DLog of spend_pk), but ecdh_hash is the output of a hash function");
+
+            #[allow(non_snake_case)]
+            let neg_P_k = P_k.negate(&secp);
+
+            let mut i = 0;
+            let mut spouts_found_with_tweak = <Vec<SpOut>>::new();
+            while i < outputs_to_check.len() {
+                let (outpoint, pubkey, amount) = outputs_to_check[i];
+                let (xonly_pubkey, _parity) = pubkey.x_only_public_key();
+                let spout = SpOut {
+                    outpoint,
+                    tweak: t_k,
+                    xonly_pubkey,
+                    amount,
+                    label: None,
+                };
+                if P_k == pubkey {
+                    spouts_found_with_tweak.push(spout);
+                    outputs_to_check.remove(i);
+                    continue;
+                }
+
+                let pk_m = pubkey.combine(&neg_P_k)?;
+                if let Some((label_tweak, label)) = self.label_lookup.get(&pk_m) {
+                    spouts_found_with_tweak.push(SpOut {
+                        tweak: t_k.add_tweak(label_tweak)?,
+                        label: Some(*label),
+                        ..spout
+                    });
+                    outputs_to_check.remove(i);
+                    continue;
+                }
+
+                i += 1;
             }
+
+            if !spouts_found_with_tweak.is_empty() {
+                spouts_found.extend(spouts_found_with_tweak);
+                matched_tweaks += 1;
+                continue;
+            }
+
+            break;
         }
+
+        Ok(spouts_found)
     }
 }

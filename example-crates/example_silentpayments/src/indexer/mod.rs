@@ -189,11 +189,7 @@ impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
             .compute_shared_secret(tx, &prevouts)
             .expect("infallible");
 
-        let spouts = self
-            .scanner
-            .scan_txouts(tx, ecdh_shared_secret)
-            .flatten()
-            .collect::<Vec<SpOut>>();
+        let spouts = self.scanner.scan_txouts(tx, ecdh_shared_secret)?;
 
         let mut tx_graph_changeset = tx_graph::ChangeSet::<A>::default();
         // Add tx and prevouts to tx_graph
