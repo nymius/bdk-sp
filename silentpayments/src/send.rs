@@ -221,8 +221,8 @@ pub fn send_to_sp(
         };
 
         #[allow(non_snake_case)]
-            let P_mn = spend.combine(&T_k)
-                .expect("computationally unreachable: can only fail if t_k = -spend_sk (DLog of spend), but t_k is the output of a hash function");
+        let P_mn = spend.combine(&T_k)
+            .expect("computationally unreachable: can only fail if t_k = -spend_sk (DLog of spend), but t_k is the output of a hash function");
         // NOTE: Should we care about parity here? No. Look at: https://gist.github.com/sipa/c9299811fb1f56abdcd2451a8a078d20
         let (x_only_pubkey, _) = P_mn.x_only_public_key();
         let x_only_tweaked = TweakedPublicKey::dangerous_assume_tweaked(x_only_pubkey);
