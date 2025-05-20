@@ -476,16 +476,6 @@ fn main() -> anyhow::Result<()> {
                     balance.total()
                 );
             }
-
-            let spouts = sp_indexer
-                .indexes
-                .spouts
-                .values()
-                .map(|x| x.outpoint.txid)
-                .collect::<Vec<_>>();
-            let mut obj = serde_json::Map::new();
-            obj.insert("silent_payments_found".to_string(), json!(&spouts));
-            println!("{}", serde_json::to_string_pretty(&obj)?);
         }
         Commands::Balance => {
             let graph = &*graph.lock().unwrap();
