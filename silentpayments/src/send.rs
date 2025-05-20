@@ -122,12 +122,18 @@ impl SpSender {
         inputs: &[SpOut],
         outputs: &[SilentPaymentCode],
     ) -> Result<Vec<ScriptBuf>, SpSendError> {
+        let secp = Secp256k1::new();
+
         let mut inputs_sk = <Vec<(OutPoint, SecretKey)>>::new();
         for spout in inputs {
-            let sp_data = (
-                spout.outpoint,
-                self.spend_sk.add_tweak(&Scalar::from(spout.tweak))?,
-            );
+            let mut spout_sk = self.spend_sk.add_tweak(&Scalar::from(spout.tweak))?;
+            let (_x_only_external, parity) = spout_sk.x_only_public_key(&secp);
+
+            if let Parity::Odd = parity {
+                spout_sk = spout_sk.negate();
+            }
+
+            let sp_data = (spout.outpoint, spout_sk);
             inputs_sk.push(sp_data);
         }
 
