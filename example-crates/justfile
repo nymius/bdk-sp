@@ -267,7 +267,7 @@ explorerlogs:
 [group("Esplora")]
 [doc("Wait for esplora to update changes in blockchain")]
 waitesplora:
-  just podcmd "tail -n 1 --pid=\$\$ -f $(just envpath)/log/esplora.log | grep -m 1 -E 'DEBUG applying [0-9]+ new headers from height [0-9]+'"
+  just podcmd "tail -n 2 --pid=\$\$ -f $(just envpath)/log/esplora.log | grep -m 1 -E 'DEBUG applying [0-9]+ new headers from height [0-9]+'" >/dev/null 2>&1
 
 [group("Podman")]
 [doc("Start your podman machine.")]
