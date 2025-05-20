@@ -446,8 +446,10 @@ bdk_sp COMMAND="help" *ARGS="": bdk_init
   fi
 
 [group("BDK flows")]
-[doc("Send from BIP32 wallet to BIP352 Wallet using no labels and labels.")]
-bdk_sp_new_example:
+[doc("Send from non-silentpayment to silentpayment wallet using no labels and labels.
+Send from silentpayment to non-silentpayment wallet with silentpayment change back.
+Send from silentpayment to silentpayment wallet.")]
+full_silentpayment_flow:
   #!/usr/bin/env bash
 
   just stop
@@ -511,6 +513,44 @@ bdk_sp_new_example:
 
     cargo -q run --bin example_silentpayments scan --scan "$SCAN_DESCRIPTOR" --code "$SP_CODE_WITHOUT_LABEL"
 
+    echo "BDK silentpayments wallet balance"
+    just bdk_sp balance
+
+    just bdk example_electrum sync
+
+    echo "BDK electrum wallet balance #1"
+    just bdk example_electrum balance
+
+    SP_TO_BIP32_JSON=$(just bdk_sp new-psbt $(echo $(($SAT_AMOUNT - 9000))) $FAKE_ADDRESS)
+    SP_TO_BIP32_PSBT=$(echo $SP_TO_BIP32_JSON | jq -r '.psbt')
+    echo "SP_TO_BIP32 fee: $(echo $SP_TO_BIP32_JSON | jq -r '.fee')"
+
+    SP_TO_BIP32_PSBT_SIGNED=$(cargo -q run --bin example_silentpayments sign-psbt --psbt $SP_TO_BIP32_PSBT --spend "$SPEND_DESCRIPTOR" | jq -r '.psbt')
+    SP_TX=$(just bdk example_electrum psbt extract $SP_TO_BIP32_PSBT_SIGNED -b | jq -r ".broadcasted_tx")
+    echo "Broadcasted txid: $SP_TX"
+    just mine 1
+
+    cargo -q run --bin example_silentpayments scan --scan "$SCAN_DESCRIPTOR" --code "$SP_CODE_WITHOUT_LABEL"
+
+    echo "BDK silentpayments wallet balance"
+    just bdk_sp balance
+
+    just bdk example_electrum sync
+
+    echo "BDK electrum wallet balance #2"
+    just bdk example_electrum balance
+
+    SP_TO_SELF_JSON=$(just bdk_sp new-psbt $(echo $(($SAT_AMOUNT - 9000))) --code $SP_CODE_WITHOUT_LABEL)
+    SP_TO_SELF_PSBT=$(echo $SP_TO_SELF_JSON | jq -r '.psbt')
+    echo "SP_TO_SELF fee: $(echo $SP_TO_SELF_JSON | jq -r '.fee')"
+    SP_TO_SELF_PSBT_SIGNED=$(cargo -q run --bin example_silentpayments sign-psbt --psbt $SP_TO_SELF_PSBT --spend "$SPEND_DESCRIPTOR" | jq -r '.psbt')
+    SP_TX=$(just bdk example_electrum psbt extract $SP_TO_SELF_PSBT_SIGNED -b | jq -r ".broadcasted_tx")
+    echo "Broadcasted txid: $SP_TX"
+    just mine 1
+
+    cargo -q run --bin example_silentpayments scan --scan "$SCAN_DESCRIPTOR" --code "$SP_CODE_WITHOUT_LABEL"
+
+    echo "BDK silentpayments wallet balance"
     just bdk_sp balance
 
   fi
