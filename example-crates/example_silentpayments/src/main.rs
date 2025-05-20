@@ -34,11 +34,13 @@ use bdk_sp::{
         address::NetworkUnchecked,
         bip32::{self, DerivationPath},
         constants,
-        key::UntweakedPublicKey,
-        secp256k1::{Secp256k1, SecretKey},
+        key::{Keypair, UntweakedPublicKey},
+        secp256k1::{Message, Scalar, Secp256k1, SecretKey},
+        sighash::{Prevouts, SighashCache},
+        taproot::Signature,
         transaction::Version,
-        Address, Amount, Block, Network, OutPoint, Psbt, ScriptBuf, Sequence, Transaction, TxIn,
-        TxOut,
+        Address, Amount, Block, Network, OutPoint, Psbt, ScriptBuf, Sequence, TapSighashType,
+        Transaction, TxIn, TxOut, XOnlyPublicKey,
     },
     encoding::SilentPaymentCode,
     receive::{Scanner, SpOut},
@@ -228,6 +230,14 @@ pub enum Commands {
         /// Debug print the PSBT
         #[clap(long, short)]
         debug: bool,
+        /// The descriptor of the spending key needed to generate the shared secret in combination with tx inputs
+        #[clap(long = "spend", env = "SPEND_DESCRIPTOR")]
+        spend_descriptor: String,
+    },
+    SignPsbt {
+        /// PSBT
+        #[clap(long)]
+        psbt: String,
         /// The descriptor of the spending key needed to generate the shared secret in combination with tx inputs
         #[clap(long = "spend", env = "SPEND_DESCRIPTOR")]
         spend_descriptor: String,
@@ -825,6 +835,52 @@ fn main() -> anyhow::Result<()> {
             let mut obj = serde_json::Map::new();
             obj.insert("psbt".to_string(), json!(psbt.to_string()));
             obj.insert("fee".to_string(), json!(fee));
+            println!("{}", serde_json::to_string_pretty(&obj)?);
+        }
+        Commands::SignPsbt {
+            psbt,
+            spend_descriptor,
+        } => {
+            let secp = Secp256k1::new();
+            let spend_sk = get_sk_from_sp_descriptor(spend_descriptor)?;
+            let mut psbt = Psbt::from_str(psbt.as_str())?;
+            let sighash_type = TapSighashType::Default;
+            let prevouts = psbt
+                .inputs
+                .iter()
+                .map(|x| x.witness_utxo.clone().unwrap())
+                .collect::<Vec<TxOut>>();
+            let prevouts = Prevouts::All(&prevouts);
+
+            let sighash = SighashCache::new(&mut psbt.unsigned_tx)
+                .taproot_key_spend_signature_hash(0, &prevouts, sighash_type)
+                .expect("failed to construct sighash");
+
+            // Sign the sighash using the secp256k1 library (exported by rust-bitcoin).
+            let msg = Message::from(sighash);
+
+            for i in 0..psbt.inputs.len() {
+                let psbt_input = &mut psbt.inputs[i];
+                if let Some(txout) = &psbt_input.witness_utxo {
+                    if let Some(spout) = indexes.script_to_spout.get(&txout.script_pubkey) {
+                        let sk = spend_sk.add_tweak(&Scalar::from(spout.tweak))?;
+                        let keypair = Keypair::from_secret_key(&secp, &sk);
+                        let (x_only_internal, _parity) = XOnlyPublicKey::from_keypair(&keypair);
+
+                        let signature = secp.sign_schnorr(&msg, &keypair);
+
+                        let signature = Signature {
+                            signature,
+                            sighash_type,
+                        };
+                        psbt_input.tap_key_sig = Some(signature);
+                        psbt_input.tap_internal_key = Some(x_only_internal);
+                    }
+                }
+            }
+
+            let mut obj = serde_json::Map::new();
+            obj.insert("psbt".to_string(), json!(psbt.to_string()));
             println!("{}", serde_json::to_string_pretty(&obj)?);
         }
     };
