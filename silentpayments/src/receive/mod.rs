@@ -163,17 +163,10 @@ impl Scanner {
         }
     }
 
-    // NOTE: This method was extracted from the original scan_tx to avoid very complex type in the
-    // return type of scan_tx (Result<Vec<Result<SpOut, SpReceiveError>>, SpReceiveError>) an also
-    // allow indexers apply txouts of a partially scanned transaction. If scan_txout fails for some
-    // of them, the correctly scanned will still be indexed
-    pub fn compute_shared_secret(
-        &self,
+    pub fn compute_tweak_data(
         tx: &Transaction,
         prevouts: &[TxOut],
     ) -> Result<PublicKey, SpReceiveError> {
-        assert_eq!(tx.input.len(), prevouts.len());
-
         let secp = Secp256k1::verification_only();
 
         let input_pubkeys = tx
@@ -213,7 +206,21 @@ impl Scanner {
                 .expect("hash value greater than curve order")
         };
 
-        let partial_ecdh_shared_secret = A_sum.mul_tweak(&secp, &input_hash)?;
+        Ok(A_sum.mul_tweak(&secp, &input_hash)?)
+    }
+
+    // NOTE: This method was extracted from the original scan_tx to avoid very complex type in the
+    // return type of scan_tx (Result<Vec<Result<SpOut, SpReceiveError>>, SpReceiveError>) an also
+    // allow indexers apply txouts of a partially scanned transaction. If scan_txout fails for some
+    // of them, the correctly scanned will still be indexed
+    pub fn compute_shared_secret(
+        &self,
+        tx: &Transaction,
+        prevouts: &[TxOut],
+    ) -> Result<PublicKey, SpReceiveError> {
+        assert_eq!(tx.input.len(), prevouts.len());
+
+        let partial_ecdh_shared_secret = Self::compute_tweak_data(tx, prevouts)?;
 
         let mut ss_bytes = [0u8; 65];
         ss_bytes[0] = 0x04;
