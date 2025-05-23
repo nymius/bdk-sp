@@ -1,3 +1,6 @@
+pub mod error;
+
+pub use self::error::SpReceiveError;
 use crate::hashes::{InputsHash, SharedSecretHash};
 use std::collections::BTreeMap;
 
@@ -15,33 +18,6 @@ pub const NUMS_H: [u8; 32] = [
     0x50, 0x92, 0x9b, 0x74, 0xc1, 0xa0, 0x49, 0x54, 0xb7, 0x8b, 0x4b, 0x60, 0x35, 0xe9, 0x7a, 0x5e,
     0x07, 0x8a, 0x5a, 0x0f, 0x28, 0xec, 0x96, 0xd5, 0x47, 0xbf, 0xee, 0x9a, 0xce, 0x80, 0x3a, 0xc0,
 ];
-
-#[derive(Debug)]
-pub enum SpReceiveError {
-    /// The input is not valid for silent payment shared secret derivation
-    PubKeyExtractionError(&'static str),
-    /// Secp256k1 error
-    Secp256k1Error(bitcoin::secp256k1::Error),
-}
-
-impl From<bitcoin::secp256k1::Error> for SpReceiveError {
-    fn from(e: bitcoin::secp256k1::Error) -> Self {
-        Self::Secp256k1Error(e)
-    }
-}
-
-impl std::fmt::Display for SpReceiveError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SpReceiveError::PubKeyExtractionError(e) => {
-                write!(f, "Silent payment receive error: {e}")
-            }
-            SpReceiveError::Secp256k1Error(e) => write!(f, "Silent payment receive error: {e}"),
-        }
-    }
-}
-
-impl std::error::Error for SpReceiveError {}
 
 pub fn extract_pubkey(
     txin: TxIn,
