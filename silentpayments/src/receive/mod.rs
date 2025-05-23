@@ -244,9 +244,9 @@ impl Scanner {
         self.scan_txouts(tx, ecdh_shared_secret)
     }
 
-    pub fn scan_txouts<'a>(
-        &'a self,
-        tx: &'a Transaction,
+    pub fn scan_txouts(
+        &self,
+        tx: &Transaction,
         ecdh_shared_secret: PublicKey,
     ) -> Result<Vec<SpOut>, SpReceiveError> {
         let secp = Secp256k1::new();
