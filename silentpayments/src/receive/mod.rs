@@ -287,7 +287,8 @@ impl Scanner {
             let T_k = t_k.public_key(&secp);
 
             #[allow(non_snake_case)]
-            let P_k = self.spend_pk.combine(&T_k).expect("computationally unreachable: can only fail if ecdh_hash = -spend_sk (DLog of spend_pk), but ecdh_hash is the output of a hash function");
+            let P_k = self.spend_pk.combine(&T_k)
+                .expect("computationally unreachable: can only fail if ecdh_hash = -spend_sk (DLog of spend_pk), but ecdh_hash is the output of a hash function");
 
             #[allow(non_snake_case)]
             let neg_P_k = P_k.negate(&secp);
