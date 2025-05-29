@@ -9,7 +9,7 @@ use bitcoin::{
     bip32::{DerivationPath, Xpriv},
     hashes::{Hash, HashEngine},
     key::{Parity, Secp256k1, TweakedPublicKey},
-    secp256k1::{PublicKey, Scalar, SecretKey},
+    secp256k1::{ecdh::shared_secret_point, PublicKey, Scalar, SecretKey},
     OutPoint, ScriptBuf,
 };
 use std::collections::HashMap;
@@ -167,14 +167,14 @@ pub fn send_to_sp(
         let shared_secret = if let Some(ecdh_shared_secret) = ecdh_shared_secret_cache.get(scan) {
             *ecdh_shared_secret
         } else {
-            // NOTE: Should we optimize here using secp256k1::ecdh::shared_secret_point?
-            // ANSWER: No, shared_secret_point is to get a Secret Key instead of public
-            // one
-            let partial_secret = a_sum.mul_tweak(&input_hash).expect(
-                "computationally unreachable: can only fail if a_sum is invalid or input_hash is",
-            );
-            let ecdh_shared_secret = scan.mul_tweak(&secp, &partial_secret.into())
-                    .expect("computationally unreachable: can only fail scan public key is invalid in the first place or partial_secret is");
+            let mut ss_bytes = [0u8; 65];
+            ss_bytes[0] = 0x04;
+
+            // Using `shared_secret_point` to ensure the multiplication is constant time
+            // TODO: Update to use x_only_shared_secret
+            ss_bytes[1..].copy_from_slice(&shared_secret_point(scan, &partial_secret));
+            let ecdh_shared_secret = PublicKey::from_slice(&ss_bytes).expect("computationally unreachable: can only fail scan public key is invalid in the first place or partial_secret is");
+            //let ecdh_shared_secret = scan.mul_tweak(&secp, &partial_secret.into())
             ecdh_shared_secret_cache.insert(*scan, ecdh_shared_secret);
             ecdh_shared_secret
         };
