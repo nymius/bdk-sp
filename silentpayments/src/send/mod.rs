@@ -151,6 +151,10 @@ pub fn send_to_sp(
         Scalar::from_be_bytes(hash.to_byte_array()).expect("hash value greater than curve order")
     };
 
+    let partial_secret = a_sum
+        .mul_tweak(&input_hash)
+        .expect("computationally unreachable: can only fail if a_sum is invalid or input_hash is");
+
     // Cache to avoid recomputing ecdh shared secret for each B_scan
     let mut ecdh_shared_secret_cache = <HashMap<PublicKey, PublicKey>>::new();
 
