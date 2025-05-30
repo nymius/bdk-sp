@@ -186,7 +186,7 @@ impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
         let txid = tx.compute_txid();
         let ecdh_shared_secret = self
             .scanner
-            .compute_shared_secret(tx, &prevouts)
+            .get_shared_secret(tx, &prevouts)
             .expect("infallible");
 
         let spouts = self.scanner.scan_txouts(tx, ecdh_shared_secret)?;
