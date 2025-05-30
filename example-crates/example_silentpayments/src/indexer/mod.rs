@@ -9,7 +9,7 @@ use bdk_sp::{
         secp256k1::{PublicKey, Scalar, SecretKey},
         OutPoint, Transaction, TxOut, Txid,
     },
-    receive::{Scanner, SpOut, SpReceiveError},
+    receive::{scan::Scanner, SpOut, SpReceiveError},
 };
 
 use bdk_bitcoind_rpc::bitcoincore_rpc::{Client, RpcApi};

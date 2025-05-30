@@ -11,7 +11,7 @@ use bdk_sp::{
         Transaction, TxIn, TxOut, Txid, Witness,
     },
     encoding::SilentPaymentCode,
-    receive::Scanner,
+    receive::scan::Scanner,
     send::bip32::XprivSilentPaymentSender,
 };
 
@@ -166,8 +166,10 @@ fn fund_wallet_and_send_silent_payment(
 
     let (sp_code, ..) = get_silentpayment_keys();
 
-    let sp_script_pubkeys =
-        sp_sender.send_to(&[(selected_outpoint, (spk, privkey_deriv_path))], &[sp_code])?;
+    let sp_script_pubkeys = sp_sender.send_to(
+        &[(selected_outpoint, (spk, privkey_deriv_path))],
+        &[sp_code],
+    )?;
 
     let amounts = vec![txout.value - Amount::from_sat(1000)];
     let txouts = sp_script_pubkeys

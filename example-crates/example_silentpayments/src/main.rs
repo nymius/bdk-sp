@@ -43,7 +43,7 @@ use bdk_sp::{
         Transaction, TxIn, TxOut, XOnlyPublicKey,
     },
     encoding::SilentPaymentCode,
-    receive::{Scanner, SpOut},
+    receive::{scan::Scanner, SpOut},
     send::{bip32::XprivSilentPaymentSender, bip352::SpSender},
 };
 
