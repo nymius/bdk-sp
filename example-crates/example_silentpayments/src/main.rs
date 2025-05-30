@@ -44,7 +44,7 @@ use bdk_sp::{
     },
     encoding::SilentPaymentCode,
     receive::{Scanner, SpOut},
-    send::{SpSender, XprivSilentPaymentSender},
+    send::{bip32::XprivSilentPaymentSender, bip352::SpSender},
 };
 
 use bdk_bitcoind_rpc::{
@@ -404,16 +404,33 @@ fn main() -> anyhow::Result<()> {
 
             let silent_payment_code = SilentPaymentCode::try_from(silent_payment_code.as_str())?;
 
-            let mut outputs_and_derivation_paths = <Vec<(OutPoint, DerivationPath)>>::new();
+            let mut outputs_and_derivation_paths =
+                <Vec<(OutPoint, (ScriptBuf, DerivationPath))>>::new();
             for (psbt_input, txin) in psbt.inputs.iter().zip(psbt.unsigned_tx.input.clone()) {
                 for (fingerprint, path) in psbt_input
                     .bip32_derivation
                     .values()
                     .chain(psbt_input.tap_key_origins.values().map(|x| &x.1))
                 {
-                    if *fingerprint == master_privkey.fingerprint(&secp) {
-                        outputs_and_derivation_paths.push((txin.previous_output, path.clone()));
-                        break;
+                    let spk = {
+                        psbt_input.witness_utxo.clone().map_or(
+                            psbt_input.non_witness_utxo.clone().map(|tx| {
+                                tx.tx_out(txin.previous_output.vout as usize)
+                                    .expect("should be in range")
+                                    .script_pubkey
+                                    .clone()
+                            }),
+                            |txout| Some(txout.script_pubkey),
+                        )
+                    };
+                    if let Some(spk) = spk {
+                        if *fingerprint == master_privkey.fingerprint(&secp) {
+                            outputs_and_derivation_paths
+                                .push((txin.previous_output, (spk, path.clone())));
+                            break;
+                        }
+                    } else {
+                        bail!("Cannot create silentpayemnt output without knowing the script pubkey of the input");
                     }
                 }
             }

@@ -12,7 +12,7 @@ use bdk_sp::{
     },
     encoding::SilentPaymentCode,
     receive::Scanner,
-    send::XprivSilentPaymentSender,
+    send::bip32::XprivSilentPaymentSender,
 };
 
 use bdk_testenv::{bitcoincore_rpc::RpcApi, TestEnv};
@@ -167,7 +167,7 @@ fn fund_wallet_and_send_silent_payment(
     let (sp_code, ..) = get_silentpayment_keys();
 
     let sp_script_pubkeys =
-        sp_sender.send_to(&[(selected_outpoint, privkey_deriv_path)], &[sp_code])?;
+        sp_sender.send_to(&[(selected_outpoint, (spk, privkey_deriv_path))], &[sp_code])?;
 
     let amounts = vec![txout.value - Amount::from_sat(1000)];
     let txouts = sp_script_pubkeys
