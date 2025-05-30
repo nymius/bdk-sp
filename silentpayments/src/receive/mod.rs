@@ -166,46 +166,6 @@ impl Scanner {
         }
     }
 
-    pub fn compute_tweak_data(
-        tx: &Transaction,
-        prevouts: &[TxOut],
-    ) -> Result<PublicKey, SpReceiveError> {
-        let secp = Secp256k1::verification_only();
-
-        let input_pubkeys = tx
-            .input
-            .clone()
-            .into_iter()
-            .zip(prevouts)
-            .filter_map(|(txin, prevout)| extract_pubkey(txin, &prevout.script_pubkey).transpose())
-            .collect::<Result<Vec<PublicKey>, SpReceiveError>>()?;
-
-        let input_pubkey_refs: Vec<&PublicKey> = input_pubkeys.iter().collect();
-
-        #[allow(non_snake_case)]
-        // NOTE: cannot ignore malicious crafting of transaction with input public keys that cancel
-        // themselves
-        let A_sum = PublicKey::combine_keys(&input_pubkey_refs)?;
-        let outpoints = tx
-            .input
-            .iter()
-            .map(|txin| txin.previous_output)
-            .collect::<Vec<OutPoint>>();
-        let smallest_outpoint = get_smallest_lexicographic_outpoint(&outpoints);
-
-        let input_hash = {
-            let mut eng = InputsHash::engine();
-            eng.input(&smallest_outpoint);
-            eng.input(&A_sum.serialize());
-            let hash = InputsHash::from_engine(eng);
-            // NOTE: Why big endian bytes??? Doesn't matter. Look at: https://github.com/rust-bitcoin/rust-bitcoin/issues/1896
-            Scalar::from_be_bytes(hash.to_byte_array())
-                .expect("hash value greater than curve order")
-        };
-
-        Ok(A_sum.mul_tweak(&secp, &input_hash)?)
-    }
-
     // NOTE: This method was extracted from the original scan_tx to avoid very complex type in the
     // return type of scan_tx (Result<Vec<Result<SpOut, SpReceiveError>>, SpReceiveError>) an also
     // allow indexers apply txouts of a partially scanned transaction. If scan_txout fails for some
@@ -217,7 +177,7 @@ impl Scanner {
     ) -> Result<PublicKey, SpReceiveError> {
         assert_eq!(tx.input.len(), prevouts.len());
 
-        let partial_ecdh_shared_secret = Self::compute_tweak_data(tx, prevouts)?;
+        let partial_ecdh_shared_secret = compute_tweak_data(tx, prevouts)?;
 
         let mut ss_bytes = [0u8; 65];
         ss_bytes[0] = 0x04;
@@ -383,4 +343,40 @@ impl Scanner {
 
         ScriptBuf::new_p2tr_tweaked(assumed_tweaked_pk)
     }
+}
+
+fn compute_tweak_data(tx: &Transaction, prevouts: &[TxOut]) -> Result<PublicKey, SpReceiveError> {
+    let secp = Secp256k1::verification_only();
+
+    let input_pubkeys = tx
+        .input
+        .clone()
+        .into_iter()
+        .zip(prevouts)
+        .filter_map(|(txin, prevout)| extract_pubkey(txin, &prevout.script_pubkey).transpose())
+        .collect::<Result<Vec<PublicKey>, SpReceiveError>>()?;
+
+    let input_pubkey_refs: Vec<&PublicKey> = input_pubkeys.iter().collect();
+
+    #[allow(non_snake_case)]
+    // NOTE: cannot ignore malicious crafting of transaction with input public keys that cancel
+    // themselves
+    let A_sum = PublicKey::combine_keys(&input_pubkey_refs)?;
+    let outpoints = tx
+        .input
+        .iter()
+        .map(|txin| txin.previous_output)
+        .collect::<Vec<OutPoint>>();
+    let smallest_outpoint = get_smallest_lexicographic_outpoint(&outpoints);
+
+    let input_hash = {
+        let mut eng = InputsHash::engine();
+        eng.input(&smallest_outpoint);
+        eng.input(&A_sum.serialize());
+        let hash = InputsHash::from_engine(eng);
+        // NOTE: Why big endian bytes??? Doesn't matter. Look at: https://github.com/rust-bitcoin/rust-bitcoin/issues/1896
+        Scalar::from_be_bytes(hash.to_byte_array()).expect("hash value greater than curve order")
+    };
+
+    Ok(A_sum.mul_tweak(&secp, &input_hash)?)
 }
