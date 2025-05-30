@@ -286,7 +286,7 @@ impl Scanner {
     /// of secp256k1.
     /// Use in the context of CBF to compute posible script pubkeys without knowledge of the
     /// transaction from which the ecdh shared secret is produced.
-    pub fn sp_spk_from_ecdh(
+    pub fn get_silentpayment_script_pubkey(
         &self,
         ecdh_shared_secret: PublicKey,
         already_found_count: u32,
