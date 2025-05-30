@@ -1,7 +1,10 @@
 pub mod error;
 
 pub use self::error::SpReceiveError;
-use crate::hashes::{InputsHash, SharedSecretHash};
+use crate::{
+    get_smallest_lexicographic_outpoint,
+    hashes::{InputsHash, SharedSecretHash},
+};
 use std::collections::BTreeMap;
 
 use bitcoin::{
@@ -183,18 +186,12 @@ impl Scanner {
         // NOTE: cannot ignore malicious crafting of transaction with input public keys that cancel
         // themselves
         let A_sum = PublicKey::combine_keys(&input_pubkey_refs)?;
-        let smallest_outpoint = tx
+        let outpoints = tx
             .input
             .iter()
-            .map(|txin| {
-                let outpoint = txin.previous_output;
-                let mut outpoint_bytes = [0u8; 36];
-                outpoint_bytes[..32].copy_from_slice(outpoint.txid.to_raw_hash().as_byte_array());
-                outpoint_bytes[32..36].copy_from_slice(&outpoint.vout.to_le_bytes());
-                outpoint_bytes
-            })
-            .min()
-            .expect("transaction should have inputs");
+            .map(|txin| txin.previous_output)
+            .collect::<Vec<OutPoint>>();
+        let smallest_outpoint = get_smallest_lexicographic_outpoint(&outpoints);
 
         let input_hash = {
             let mut eng = InputsHash::engine();

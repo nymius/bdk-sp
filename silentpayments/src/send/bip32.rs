@@ -1,8 +1,8 @@
 use crate::{
     encoding::SilentPaymentCode,
+    get_smallest_lexicographic_outpoint,
     send::{
-        create_silentpayment_partial_secret, create_silentpayment_scriptpubkeys,
-        error::SpSendError, get_smallest_lexicographic_outpoint,
+        create_silentpayment_partial_secret, create_silentpayment_scriptpubkeys, error::SpSendError,
     },
 };
 

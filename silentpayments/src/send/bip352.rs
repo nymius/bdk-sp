@@ -1,10 +1,9 @@
-use crate::send::create_silentpayment_scriptpubkeys;
 use crate::{
     encoding::SilentPaymentCode,
+    get_smallest_lexicographic_outpoint,
     receive::SpOut,
     send::{
-        create_silentpayment_partial_secret, error::SpSendError,
-        get_smallest_lexicographic_outpoint,
+        create_silentpayment_partial_secret, create_silentpayment_scriptpubkeys, error::SpSendError,
     },
 };
 use bitcoin::{
