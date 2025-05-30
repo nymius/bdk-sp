@@ -275,56 +275,56 @@ impl Scanner {
 
         Ok(spouts_found)
     }
+}
 
-    /// Get the script pubkey for silent payments derived from the current set of scan and spend
-    /// public key, combined with the elliptic curve diffie hellman provided.
-    /// The already_found_count is a parameter to produce the silent payment script pubkey obtained
-    /// after adding alread_found_count of silent payment outputs directed to the same silent
-    /// payment code.
-    /// The optional maybe_label_into_ecc can be used to get the script pubkey from a labelled silent
-    /// payment where the label is the preimage of hash(label) * G, where G is the generator point
-    /// of secp256k1.
-    /// Use in the context of CBF to compute posible script pubkeys without knowledge of the
-    /// transaction from which the ecdh shared secret is produced.
-    pub fn get_silentpayment_script_pubkey(
-        &self,
-        ecdh_shared_secret: PublicKey,
-        already_found_count: u32,
-        maybe_label_into_ecc: Option<PublicKey>,
-    ) -> ScriptBuf {
-        let secp = Secp256k1::new();
+/// Get the script pubkey for silent payments derived from the current set of scan and spend
+/// public key, combined with the elliptic curve diffie hellman provided.
+/// The already_found_count is a parameter to produce the silent payment script pubkey obtained
+/// after adding alread_found_count of silent payment outputs directed to the same silent
+/// payment code.
+/// The optional maybe_label_into_ecc can be used to get the script pubkey from a labelled silent
+/// payment where the label is the preimage of hash(label) * G, where G is the generator point
+/// of secp256k1.
+/// Use in the context of CBF to compute posible script pubkeys without knowledge of the
+/// transaction from which the ecdh shared secret is produced.
+pub fn get_silentpayment_script_pubkey(
+    spend_pk: PublicKey,
+    ecdh_shared_secret: PublicKey,
+    already_found_count: u32,
+    maybe_label_point: Option<PublicKey>,
+) -> ScriptBuf {
+    let secp = Secp256k1::new();
 
-        let t_k = {
-            let mut eng = SharedSecretHash::engine();
-            eng.input(&ecdh_shared_secret.serialize());
-            // Just produce spks for the first possible
-            // silent payment in a tx
-            eng.input(&already_found_count.to_be_bytes());
-            let hash = SharedSecretHash::from_engine(eng);
-            SecretKey::from_slice(&hash.to_byte_array())
-                .expect("computationally unreachable: only if hash value greater than curve order")
-        };
+    let t_k = {
+        let mut eng = SharedSecretHash::engine();
+        eng.input(&ecdh_shared_secret.serialize());
+        // Just produce spks for the first possible
+        // silent payment in a tx
+        eng.input(&already_found_count.to_be_bytes());
+        let hash = SharedSecretHash::from_engine(eng);
+        SecretKey::from_slice(&hash.to_byte_array())
+            .expect("computationally unreachable: only if hash value greater than curve order")
+    };
 
-        #[allow(non_snake_case)]
-        let T_k = t_k.public_key(&secp);
+    #[allow(non_snake_case)]
+    let T_k = t_k.public_key(&secp);
 
-        #[allow(non_snake_case)]
-        let mut P_k = self.spend_pk.combine(&T_k)
+    #[allow(non_snake_case)]
+        let mut P_k = spend_pk.combine(&T_k)
             .expect("computationally unreachable: can only fail if ecdh_hash = -spend_sk (DLog of spend_pk), but ecdh_hash is the output of a hash function");
 
-        P_k = if let Some(label_into_ecc) = maybe_label_into_ecc {
-            P_k.combine(&label_into_ecc)
+    P_k = if let Some(label_point) = maybe_label_point {
+        P_k.combine(&label_point)
                 .expect("computationally unreachable: can only fail if label (scalar) = -spend_sk (DLog of spend_pk), but label (scalar) is the output of a hash function")
-        } else {
-            P_k
-        };
+    } else {
+        P_k
+    };
 
-        let (x_only_key, _) = P_k.x_only_public_key();
+    let (x_only_key, _) = P_k.x_only_public_key();
 
-        let assumed_tweaked_pk = TweakedPublicKey::dangerous_assume_tweaked(x_only_key);
+    let assumed_tweaked_pk = TweakedPublicKey::dangerous_assume_tweaked(x_only_key);
 
-        ScriptBuf::new_p2tr_tweaked(assumed_tweaked_pk)
-    }
+    ScriptBuf::new_p2tr_tweaked(assumed_tweaked_pk)
 }
 
 // NOTE: This method was extracted from the original scan_tx to avoid very complex type in the
