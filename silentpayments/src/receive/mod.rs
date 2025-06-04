@@ -248,30 +248,10 @@ pub fn get_silentpayment_script_pubkey(
     ScriptBuf::new_p2tr_tweaked(assumed_tweaked_pk)
 }
 
-// NOTE: This method was extracted from the original scan_tx to avoid very complex type in the
-// return type of scan_tx (Result<Vec<Result<SpOut, SpReceiveError>>, SpReceiveError>) an also
-// allow indexers apply txouts of a partially scanned transaction. If scan_txout fails for some
-// of them, the correctly scanned will still be indexed
-pub fn compute_shared_secret(
-    scan_sk: SecretKey,
+pub fn compute_tweak_data(
     tx: &Transaction,
     prevouts: &[TxOut],
 ) -> Result<PublicKey, SpReceiveError> {
-    assert_eq!(tx.input.len(), prevouts.len());
-
-    let partial_ecdh_shared_secret = compute_tweak_data(tx, prevouts)?;
-
-    let mut ss_bytes = [0u8; 65];
-    ss_bytes[0] = 0x04;
-
-    // Using `shared_secret_point` to ensure the multiplication is constant time
-    // TODO: Update to use x_only_shared_secret
-    ss_bytes[1..].copy_from_slice(&shared_secret_point(&partial_ecdh_shared_secret, &scan_sk));
-
-    Ok(PublicKey::from_slice(&ss_bytes).expect("guaranteed to be a point on the curve"))
-}
-
-fn compute_tweak_data(tx: &Transaction, prevouts: &[TxOut]) -> Result<PublicKey, SpReceiveError> {
     let secp = Secp256k1::verification_only();
 
     let input_pubkeys = tx

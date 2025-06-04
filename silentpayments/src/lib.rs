@@ -74,3 +74,14 @@ pub fn get_smallest_lexicographic_outpoint(outpoints: &[OutPoint]) -> [u8; 36] {
         .min()
         .expect("cannot create silent payment script pubkey without outpoints")
 }
+
+pub fn compute_shared_secret(sk: &SecretKey, pk: &PublicKey) -> PublicKey {
+    let mut ss_bytes = [0u8; 65];
+    ss_bytes[0] = 0x04;
+
+    // Using `shared_secret_point` to ensure the multiplication is constant time
+    // TODO: Update to use x_only_shared_secret
+    ss_bytes[1..].copy_from_slice(&shared_secret_point(pk, sk));
+
+    PublicKey::from_slice(&ss_bytes).expect("computationally unreachable: can only fail if public key is invalid in the first place or sk is")
+}
