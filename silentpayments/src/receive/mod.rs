@@ -15,9 +15,8 @@ use bitcoin::{
     self,
     hashes::{Hash, HashEngine},
     key::{Parity, Secp256k1, TweakedPublicKey},
-    secp256k1::{ecdh::shared_secret_point, PublicKey, Scalar, SecretKey},
-    Amount, CompressedPublicKey, OutPoint, PubkeyHash, ScriptBuf, Transaction, TxIn, TxOut, Txid,
-    XOnlyPublicKey,
+    secp256k1::{PublicKey, Scalar, SecretKey},
+    Amount, OutPoint, PubkeyHash, ScriptBuf, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
