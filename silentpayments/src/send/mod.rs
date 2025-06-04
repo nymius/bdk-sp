@@ -3,6 +3,7 @@ pub mod bip352;
 pub mod error;
 
 use crate::{
+    compute_shared_secret,
     encoding::SilentPaymentCode,
     hashes::{InputsHash, SharedSecretHash},
     send::error::SpSendError,
@@ -84,16 +85,7 @@ pub fn create_silentpayment_scriptpubkeys(
         let shared_secret = if let Some(ecdh_shared_secret) = ecdh_shared_secret_cache.get(scan) {
             *ecdh_shared_secret
         } else {
-            let mut ss_bytes = [0u8; 65];
-            ss_bytes[0] = 0x04;
-
-            // Using `shared_secret_point` to ensure the multiplication is constant time
-            // TODO: Update to use x_only_shared_secret
-            ss_bytes[1..].copy_from_slice(&shared_secret_point(scan, &partial_secret));
-            let ecdh_shared_secret = PublicKey::from_slice(&ss_bytes).expect("computationally unreachable: can only fail scan public key is invalid in the first place or partial_secret is");
-            //let ecdh_shared_secret = scan.mul_tweak(&secp, &partial_secret.into())
-            ecdh_shared_secret_cache.insert(*scan, ecdh_shared_secret);
-            ecdh_shared_secret
+            compute_shared_secret(&partial_secret, scan)
         };
 
         let k = if let Some(count) = B_m_count_cache.get(spend) {

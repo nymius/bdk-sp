@@ -1,4 +1,8 @@
-use crate::receive::{compute_shared_secret, scan_txouts, SpOut, SpReceiveError};
+use crate::{
+    compute_shared_secret,
+    receive::{compute_tweak_data, scan_txouts, SpOut, SpReceiveError},
+};
+
 use std::collections::BTreeMap;
 
 use bitcoin::{
@@ -30,7 +34,8 @@ impl Scanner {
         tx: &Transaction,
         prevouts: &[TxOut],
     ) -> Result<PublicKey, SpReceiveError> {
-        compute_shared_secret(self.scan_sk, tx, prevouts)
+        compute_tweak_data(tx, prevouts)
+            .map(|partial_secret| compute_shared_secret(&self.scan_sk, &partial_secret))
     }
 
     pub fn scan_txouts(
@@ -51,7 +56,7 @@ impl Scanner {
         tx: &Transaction,
         prevouts: &[TxOut],
     ) -> Result<Vec<SpOut>, SpReceiveError> {
-        let ecdh_shared_secret = compute_shared_secret(self.scan_sk, tx, prevouts)?;
+        let ecdh_shared_secret = self.get_shared_secret(tx, prevouts)?;
         self.scan_txouts(tx, ecdh_shared_secret)
     }
 }
