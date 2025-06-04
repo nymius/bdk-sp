@@ -144,7 +144,14 @@ build TAG="1.0.0" VERSION="29.0" RELEASE="29.0" ARCH="x86_64-linux-gnu": machine
     ENTRYPOINT ["tail", "-f", "/dev/null"]
   EOF
 
-  cat <&3 | podman --connection regtest build -q --build-arg BITCOIN_VERSION={{VERSION}} --build-arg RELEASE={{RELEASE}} --build-arg TARGET_ARCH={{ARCH}} --tag localhost/regtest:{{TAG}} -f -
+  image_exists=$(podman --connection regtest images --noheading -f reference=localhost/regtest:1.0.0 --format 'table \{\{.ID\}\}')
+  if [[ $image_exists ]]; then
+    echo "Image already built."
+    exit
+  else
+    cat <&3 | podman --connection regtest build --build-arg BITCOIN_VERSION={{VERSION}} --build-arg RELEASE={{RELEASE}} --build-arg TARGET_ARCH={{ARCH}} --tag localhost/regtest:{{TAG}} -f -
+  fi
+
 
 [group("Podman")]
 [doc("Create container running test node in allocated VM.")]
