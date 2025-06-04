@@ -46,9 +46,7 @@ pub fn create_silentpayment_partial_secret(
     let mut a_sum = available_keys[0];
     // Then skip first element to avoid reuse
     for sk in available_keys.iter().skip(1) {
-        a_sum = a_sum
-            .add_tweak(&Scalar::from(*sk))
-            .expect("computationally unreachable");
+        a_sum = a_sum.add_tweak(&Scalar::from(*sk))?;
     }
 
     #[allow(non_snake_case)]
