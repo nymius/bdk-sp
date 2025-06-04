@@ -40,7 +40,7 @@ fn process_sending_given(
 fn check_cases(test_case_idx: usize) {
     for case in JSON_VECTORS[test_case_idx].sending.iter() {
         if let Ok(results) = process_sending_given(&case.given) {
-            assert!(case.expected.outputs.iter().any(|x| *x == results));
+            assert!(case.expected.outputs.contains(&results));
         } else {
             assert!(case.expected.outputs.iter().all(|x| x.is_empty()));
         }
