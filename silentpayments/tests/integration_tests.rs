@@ -16,6 +16,7 @@ use bdk_sp::{
 };
 
 use bdk_testenv::{bitcoincore_rpc::RpcApi, TestEnv};
+use bitcoin::{key::TweakedPublicKey, ScriptBuf};
 use miniscript::{descriptor::DescriptorSecretKey, Descriptor, DescriptorPublicKey};
 use std::collections::BTreeMap;
 
@@ -166,20 +167,32 @@ fn fund_wallet_and_send_silent_payment(
 
     let (sp_code, ..) = get_silentpayment_keys();
 
-    let sp_script_pubkeys = sp_sender.send_to(
+    let sp_code_with_amount = [(sp_code.clone(), txout.value - Amount::from_sat(1000))];
+
+    let mut sp_script_pubkeys = sp_sender.send_to(
         &[(selected_outpoint, (spk, privkey_deriv_path))],
         &[sp_code],
     )?;
 
-    let amounts = vec![txout.value - Amount::from_sat(1000)];
-    let txouts = sp_script_pubkeys
+    let txouts = sp_code_with_amount
         .into_iter()
-        .zip(amounts)
-        .map(|(script_pubkey, value)| TxOut {
-            value,
-            script_pubkey,
+        .map(|(sp_code, value)| {
+            let script_pubkey = {
+                let x_only_pubkey = sp_script_pubkeys
+                    .get_mut(&sp_code)
+                    .expect("deterministic test")
+                    .pop()
+                    .expect("deterministic test");
+                let x_only_tweaked = TweakedPublicKey::dangerous_assume_tweaked(x_only_pubkey);
+
+                ScriptBuf::new_p2tr_tweaked(x_only_tweaked)
+            };
+            TxOut {
+                value,
+                script_pubkey,
+            }
         })
-        .collect();
+        .collect::<Vec<TxOut>>();
 
     let silent_payment_txin = TxIn {
         previous_output: selected_outpoint,
