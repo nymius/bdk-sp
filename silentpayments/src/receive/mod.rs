@@ -60,19 +60,24 @@ pub fn extract_pubkey(
 
     tag_txin(&txin, script_pubkey)
         .map(|x| match x {
-            WrappedSegwit | P2WPKH => txin
-                .witness
-                .last()
-                // NOTE: This is a way to ensure all used keys are compressed, not compressed keys are
-                // not considered.
-                .map(CompressedPublicKey::from_slice)
-                .transpose()?
-                .map_or(
-                    Err(SpReceiveError::PubKeyExtractionError(
+            WrappedSegwit | P2WPKH => {
+                txin.witness
+                    .last()
+                    // NOTE: This is a way to ensure all used keys are compressed, not compressed keys are
+                    // not considered.
+                    .map(bitcoin::PublicKey::from_slice)
+                    .transpose()?
+                    .and_then(|pubkey| {
+                        if pubkey.compressed {
+                            Some(pubkey.inner)
+                        } else {
+                            None
+                        }
+                    })
+                    .ok_or(SpReceiveError::PubKeyExtractionError(
                         "Public key extraction from TxOut witness failed",
-                    )),
-                    |pubkey| Ok(PublicKey::from_slice(&pubkey.to_bytes())?),
-                ),
+                    ))
+            }
             P2TR => {
                 Ok(
                     // NOTE: Only x only even taproot keys should be considered
@@ -87,18 +92,21 @@ pub fn extract_pubkey(
                     .rev()
                     // NOTE: This is a way to ensure all used keys are compressed, not compressed keys are
                     // not considered.
-                    .map(CompressedPublicKey::from_slice)
-                    .transpose()?
-                    .filter(|pubkey| {
-                        <PubkeyHash as AsRef<[u8; 20]>>::as_ref(&pubkey.pubkey_hash())
-                            == script_pubkey[3..23].as_bytes()
+                    .find_map(|slice| {
+                        bitcoin::PublicKey::from_slice(slice).map_or(None, |pubkey| {
+                            if pubkey.compressed
+                                && <PubkeyHash as AsRef<[u8; 20]>>::as_ref(&pubkey.pubkey_hash())
+                                    == script_pubkey[3..23].as_bytes()
+                            {
+                                Some(pubkey.inner)
+                            } else {
+                                None
+                            }
+                        })
                     })
-                    .map_or(
-                        Err(SpReceiveError::PubKeyExtractionError(
-                            "Public key extraction from TxOut script signature failed",
-                        )),
-                        |pubkey| Ok(PublicKey::from_slice(&pubkey.to_bytes())?),
-                    )
+                    .ok_or(SpReceiveError::PubKeyExtractionError(
+                        "Public key extraction from TxOut script signature failed",
+                    ))
             }
         })
         .transpose()
