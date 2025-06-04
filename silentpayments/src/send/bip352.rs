@@ -8,10 +8,11 @@ use crate::{
         create_silentpayment_partial_secret, create_silentpayment_scriptpubkeys, error::SpSendError,
     },
 };
+
 use bitcoin::{
-    key::{Parity, Secp256k1, TweakedPublicKey},
+    key::{Secp256k1, TweakedPublicKey},
     secp256k1::{Scalar, SecretKey},
-    OutPoint, ScriptBuf,
+    OutPoint, ScriptBuf, XOnlyPublicKey,
 };
 
 pub struct SpSender {

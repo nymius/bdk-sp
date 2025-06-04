@@ -8,12 +8,11 @@ use crate::{
     },
 };
 
-use bitcoin::TapTweakHash;
 use bitcoin::{
     bip32::{DerivationPath, Xpriv},
     key::{Parity, Secp256k1},
     secp256k1::SecretKey,
-    OutPoint, ScriptBuf,
+    OutPoint, ScriptBuf, TapTweakHash, XOnlyPublicKey,
 };
 
 pub struct XprivSilentPaymentSender {

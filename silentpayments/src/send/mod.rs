@@ -11,12 +11,12 @@ use crate::{
 
 use bitcoin::{
     hashes::{Hash, HashEngine},
-    key::{Secp256k1, TweakedPublicKey},
-    secp256k1::{ecdh::shared_secret_point, PublicKey, Scalar, SecretKey},
-    ScriptBuf,
+    key::{Parity, Secp256k1},
+    secp256k1::{PublicKey, Scalar, SecretKey},
+    ScriptBuf, XOnlyPublicKey,
 };
-use std::collections::HashMap;
 
+use std::collections::HashMap;
 
 pub fn create_silentpayment_partial_secret(
     smallest_outpoint_bytes: &[u8; 36],
