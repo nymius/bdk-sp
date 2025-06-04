@@ -84,7 +84,7 @@ pub fn extract_pubkey(
                 txin.script_sig
                     .into_bytes()
                     .windows(33)
-                    .last()
+                    .rev()
                     // NOTE: This is a way to ensure all used keys are compressed, not compressed keys are
                     // not considered.
                     .map(CompressedPublicKey::from_slice)
@@ -103,7 +103,6 @@ pub fn extract_pubkey(
         })
         .transpose()
 }
-
 
 pub fn scan_txouts(
     spend_pk: PublicKey,
