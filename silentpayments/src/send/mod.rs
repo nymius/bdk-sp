@@ -7,6 +7,7 @@ use crate::{
     hashes::{InputsHash, SharedSecretHash},
     send::error::SpSendError,
 };
+
 use bitcoin::{
     hashes::{Hash, HashEngine},
     key::{Secp256k1, TweakedPublicKey},
@@ -15,9 +16,6 @@ use bitcoin::{
 };
 use std::collections::HashMap;
 
-pub fn is_scriptpubkey_for_shared_secret(spk: &ScriptBuf) -> bool {
-    spk.is_p2wpkh() || spk.is_p2pkh() || spk.is_p2tr() || spk.is_p2sh()
-}
 
 pub fn create_silentpayment_partial_secret(
     smallest_outpoint_bytes: &[u8; 36],
