@@ -266,8 +266,11 @@ pub fn compute_tweak_data(
         .clone()
         .into_iter()
         .zip(prevouts)
-        .filter_map(|(txin, prevout)| extract_pubkey(txin, &prevout.script_pubkey).transpose())
-        .collect::<Result<Vec<PublicKey>, SpReceiveError>>()?;
+        .filter_map(|(txin, prevout)| {
+            // NOTE: Public keys which couldn't be extracted will be ignored
+            extract_pubkey(txin, &prevout.script_pubkey).map_or(None, |x| x)
+        })
+        .collect::<Vec<PublicKey>>();
 
     let input_pubkey_refs: Vec<&PublicKey> = input_pubkeys.iter().collect();
 
