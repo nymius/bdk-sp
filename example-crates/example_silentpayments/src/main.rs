@@ -8,6 +8,7 @@ use std::{
 };
 
 use anyhow::{self, bail, Context};
+use bitcoin::key::TweakedPublicKey;
 use clap::{self, Args, Parser, Subcommand};
 use miniscript::{
     descriptor::{DescriptorSecretKey, DescriptorType},
@@ -404,6 +405,9 @@ fn main() -> anyhow::Result<()> {
 
             let silent_payment_code = SilentPaymentCode::try_from(silent_payment_code.as_str())?;
 
+            let sp_codes_with_amount =
+                vec![(silent_payment_code.clone(), single_external_txout.value)];
+
             let mut outputs_and_derivation_paths =
                 <Vec<(OutPoint, (ScriptBuf, DerivationPath))>>::new();
             for (psbt_input, txin) in psbt.inputs.iter().zip(psbt.unsigned_tx.input.clone()) {
@@ -435,16 +439,29 @@ fn main() -> anyhow::Result<()> {
                 }
             }
 
-            let sp_script_pubkeys =
+            let mut sp_script_pubkeys =
                 sp_sender.send_to(&outputs_and_derivation_paths, &[silent_payment_code])?;
 
-            let txout = TxOut {
-                value: single_external_txout.value,
-                script_pubkey: sp_script_pubkeys
-                    .first()
-                    .expect("only provided one silent payment code")
-                    .clone(),
-            };
+            let txouts = sp_codes_with_amount
+                .into_iter()
+                .map(|(sp_code, value)| {
+                    let script_pubkey = {
+                        let x_only_pubkey = sp_script_pubkeys
+                            .get_mut(&sp_code)
+                            .expect("deterministic test")
+                            .pop()
+                            .expect("deterministic test");
+                        let x_only_tweaked =
+                            TweakedPublicKey::dangerous_assume_tweaked(x_only_pubkey);
+
+                        ScriptBuf::new_p2tr_tweaked(x_only_tweaked)
+                    };
+                    TxOut {
+                        value,
+                        script_pubkey,
+                    }
+                })
+                .collect::<Vec<TxOut>>();
 
             psbt.unsigned_tx.output = psbt
                 .unsigned_tx
@@ -452,7 +469,8 @@ fn main() -> anyhow::Result<()> {
                 .into_iter()
                 .map(|x| {
                     if x.script_pubkey == single_external_txout.script_pubkey {
-                        txout.clone()
+                        // TODO: Generalize for all outputs to replace
+                        txouts[0].clone()
                     } else {
                         x
                     }
@@ -808,18 +826,28 @@ fn main() -> anyhow::Result<()> {
                 let just_sp_codes = sp_codes
                     .clone()
                     .iter()
-                    .map(|x| x.1.clone())
+                    .map(|(_spk, sp_code)| sp_code.clone())
                     .collect::<Vec<SilentPaymentCode>>();
-                let just_sp_script_pubkeys = sp_codes
-                    .clone()
-                    .iter()
-                    .map(|x| x.0.clone())
-                    .collect::<Vec<ScriptBuf>>();
-                let sp_spks = SpSender::new(spend_sk).send_to(&spouts, &just_sp_codes)?;
+                let mut sp_payments = SpSender::new(spend_sk).send_to(&spouts, &just_sp_codes)?;
                 // WARN: collect iterator to avoid consuming it while checking for outputs
-                let spk_to_sp_spk = just_sp_script_pubkeys
+                let spk_to_sp_spk = sp_codes
                     .iter()
-                    .zip(sp_spks)
+                    .filter_map(|(fake_spk, sp_code)| {
+                        let script_pubkey = {
+                            sp_payments.get_mut(sp_code).and_then(|pubkeys| {
+                                pubkeys.pop().map(|x_only_pubkey| {
+                                    let x_only_tweaked =
+                                        TweakedPublicKey::dangerous_assume_tweaked(x_only_pubkey);
+
+                                    // NOTE: we rely on the input/output ordering to match silent payment codes with their
+                                    // belonging script pubkey
+                                    ScriptBuf::new_p2tr_tweaked(x_only_tweaked)
+                                })
+                            })
+                        };
+
+                        script_pubkey.map(|spk| (fake_spk, spk))
+                    })
                     .collect::<Vec<(&ScriptBuf, ScriptBuf)>>();
 
                 let new_outputs = outputs

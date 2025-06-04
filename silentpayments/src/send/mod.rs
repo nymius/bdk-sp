@@ -70,15 +70,15 @@ pub fn create_silentpayment_partial_secret(
 pub fn create_silentpayment_scriptpubkeys(
     partial_secret: SecretKey,
     outputs: &[SilentPaymentCode],
-) -> Result<Vec<ScriptBuf>, SpSendError> {
+) -> Result<HashMap<SilentPaymentCode, Vec<XOnlyPublicKey>>, SpSendError> {
     let secp = Secp256k1::new();
 
     // Cache to avoid recomputing ecdh shared secret for each B_scan and track the k to get the
     // shared secret hash for each output
     let mut shared_secret_cache = <HashMap<PublicKey, (u32, PublicKey)>>::new();
 
-    let mut script_pubkeys = <Vec<ScriptBuf>>::new();
-    for SilentPaymentCode { scan, spend, .. } in outputs.iter() {
+    let mut payments = <HashMap<SilentPaymentCode, Vec<XOnlyPublicKey>>>::new();
+    for sp_code @ SilentPaymentCode { scan, spend, .. } in outputs.iter() {
         let (k, shared_secret) =
             if let Some((k, ecdh_shared_secret)) = shared_secret_cache.get(scan) {
                 (*k, *ecdh_shared_secret)
@@ -104,12 +104,13 @@ pub fn create_silentpayment_scriptpubkeys(
             .expect("computationally unreachable: can only fail if t_k = -spend_sk (DLog of spend), but t_k is the output of a hash function");
         // NOTE: Should we care about parity here? No. Look at: https://gist.github.com/sipa/c9299811fb1f56abdcd2451a8a078d20
         let (x_only_pubkey, _) = P_mn.x_only_public_key();
-        let x_only_tweaked = TweakedPublicKey::dangerous_assume_tweaked(x_only_pubkey);
 
-        // NOTE: we rely on the input/output ordering to match silent payment codes with their
-        // belonging script pubkey
-        script_pubkeys.push(ScriptBuf::new_p2tr_tweaked(x_only_tweaked));
+        if let Some(pubkeys) = payments.get_mut(sp_code) {
+            pubkeys.push(x_only_pubkey);
+        } else {
+            payments.insert(sp_code.clone(), vec![x_only_pubkey]);
+        }
     }
 
-    Ok(script_pubkeys)
+    Ok(payments)
 }

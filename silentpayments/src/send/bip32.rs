@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{
     encoding::SilentPaymentCode,
     get_smallest_lexicographic_outpoint,
@@ -27,7 +29,7 @@ impl XprivSilentPaymentSender {
         &self,
         inputs: &[(OutPoint, (ScriptBuf, DerivationPath))],
         outputs: &[SilentPaymentCode],
-    ) -> Result<Vec<ScriptBuf>, SpSendError> {
+    ) -> Result<HashMap<SilentPaymentCode, Vec<XOnlyPublicKey>>, SpSendError> {
         let secp = Secp256k1::new();
         let (outpoints, spks_with_derivations): (Vec<_>, Vec<_>) = inputs.iter().cloned().unzip();
 
