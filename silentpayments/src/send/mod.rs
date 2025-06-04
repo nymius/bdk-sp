@@ -28,7 +28,20 @@ pub fn create_silentpayment_partial_secret(
     let available_keys = spks_with_keys
         .iter()
         .cloned()
-        .filter_map(|(spk, sk)| is_scriptpubkey_for_shared_secret(&spk).then_some(sk))
+        .filter_map(|(spk, sk)| {
+            if spk.is_p2tr() {
+                let (_, parity) = sk.x_only_public_key(&secp);
+                if parity == Parity::Odd {
+                    Some(sk.negate())
+                } else {
+                    Some(sk)
+                }
+            } else if spk.is_p2pkh() || spk.is_p2sh() || spk.is_p2wpkh() {
+                Some(sk)
+            } else {
+                None
+            }
+        })
         .collect::<Vec<SecretKey>>();
 
     // Use first derived_secret key to initialize a_sum

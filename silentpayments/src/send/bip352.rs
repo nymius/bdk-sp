@@ -31,12 +31,10 @@ impl SpSender {
         let mut spks_with_keys = <Vec<(ScriptBuf, SecretKey)>>::new();
         let mut outpoints = <Vec<OutPoint>>::new();
         for spout in inputs {
-            let mut spout_sk = self.spend_sk.add_tweak(&Scalar::from(spout.tweak))?;
-            let (x_only_external, parity) = spout_sk.x_only_public_key(&secp);
-
-            if let Parity::Odd = parity {
-                spout_sk = spout_sk.negate();
-            }
+            // NOTE: The parity of the external privkey will be checked on the
+            // create_silentpayment_partial_secret function
+            let spout_sk = self.spend_sk.add_tweak(&Scalar::from(spout.tweak))?;
+            let (x_only_external, _) = spout_sk.x_only_public_key(&secp);
 
             let tweaked_pk = TweakedPublicKey::dangerous_assume_tweaked(x_only_external);
             let spk = ScriptBuf::new_p2tr_tweaked(tweaked_pk);
