@@ -291,7 +291,7 @@ impl std::fmt::Display for CoinSelectionAlgo {
 
 #[inline]
 fn is_change(spout: &SpOut, _: ScriptBuf) -> bool {
-    spout.label.map_or(false, |x| x == CHANGE_LABEL)
+    spout.label == Some(CHANGE_LABEL)
 }
 
 fn main() -> anyhow::Result<()> {
