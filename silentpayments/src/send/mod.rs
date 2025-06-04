@@ -73,26 +73,20 @@ pub fn create_silentpayment_scriptpubkeys(
 ) -> Result<Vec<ScriptBuf>, SpSendError> {
     let secp = Secp256k1::new();
 
-    // Cache to avoid recomputing ecdh shared secret for each B_scan
-    let mut ecdh_shared_secret_cache = <HashMap<PublicKey, PublicKey>>::new();
-
-    #[allow(non_snake_case)]
-    // Cache to track output count for each B_m
-    let B_m_count_cache = <HashMap<PublicKey, u32>>::new();
+    // Cache to avoid recomputing ecdh shared secret for each B_scan and track the k to get the
+    // shared secret hash for each output
+    let mut shared_secret_cache = <HashMap<PublicKey, (u32, PublicKey)>>::new();
 
     let mut script_pubkeys = <Vec<ScriptBuf>>::new();
     for SilentPaymentCode { scan, spend, .. } in outputs.iter() {
-        let shared_secret = if let Some(ecdh_shared_secret) = ecdh_shared_secret_cache.get(scan) {
-            *ecdh_shared_secret
-        } else {
-            compute_shared_secret(&partial_secret, scan)
-        };
+        let (k, shared_secret) =
+            if let Some((k, ecdh_shared_secret)) = shared_secret_cache.get(scan) {
+                (*k, *ecdh_shared_secret)
+            } else {
+                (0u32, compute_shared_secret(&partial_secret, scan))
+            };
 
-        let k = if let Some(count) = B_m_count_cache.get(spend) {
-            count + 1
-        } else {
-            0
-        };
+        shared_secret_cache.insert(*scan, (k + 1, shared_secret));
 
         #[allow(non_snake_case)]
         let T_k = {
