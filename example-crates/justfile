@@ -121,6 +121,15 @@ build TAG="1.0.0" VERSION="29.0" RELEASE="29.0" ARCH="x86_64-linux-gnu": machine
     RUN cp target/release/example_esplora /build
     RUN rm -rf /bdk
 
+    FROM golang:alpine as go-builder
+    RUN apk update && apk add wget
+    RUN mkdir -p /blindbit
+    RUN mkdir -p /build
+    WORKDIR /blindbit
+    RUN wget -qO- https://github.com/setavenger/blindbit-oracle/archive/refs/tags/indexes-stable.tar.gz | tar -xzvf - --strip-components=1
+    RUN go mod download
+    RUN env CGO_ENABLED=0 go build -o /build/blindbit ./src
+
     FROM debian:bookworm-slim
     ARG BITCOIN_VERSION=26.0
     COPY --from=rust-builder /build/electrs /usr/local/bin
@@ -128,6 +137,7 @@ build TAG="1.0.0" VERSION="29.0" RELEASE="29.0" ARCH="x86_64-linux-gnu": machine
     COPY --from=rust-builder build/example_bitcoind_rpc_polling /usr/local/bin
     COPY --from=rust-builder build/example_electrum /usr/local/bin
     COPY --from=rust-builder build/example_esplora /usr/local/bin
+    COPY --from=go-builder build/blindbit /usr/local/bin
     COPY --from=debian-builder /bitcoin/bitcoin-${BITCOIN_VERSION}/bin/bitcoin-util /usr/local/bin
     COPY --from=debian-builder /bitcoin/bitcoin-${BITCOIN_VERSION}/bin/bitcoin-cli /usr/local/bin
     COPY --from=debian-builder /bitcoin/bitcoin-${BITCOIN_VERSION}/bin/bitcoin-tx /usr/local/bin
@@ -164,7 +174,7 @@ create FORCE="false" TAG="1.0.0" NAME="RegtestBitcoinEnv": (build TAG)
     podman --connection regtest rm -f $container_exists
   fi
 
-    podman --connection regtest create --name {{NAME}} --publish 18443:18443 --publish 18444:18444 --publish 3002:3002 --publish 3003:3003 --publish 60401:60401 localhost/regtest:{{TAG}}
+    podman --connection regtest create --name {{NAME}} --publish 18443:18443 --publish 18444:18444 --publish 3002:3002 --publish 3003:3003 --publish 3004:3004 --publish 60401:60401 localhost/regtest:{{TAG}}
 
 [group("Podman")]
 [doc("Launch ephemeral environment")]
@@ -188,7 +198,10 @@ start STATE="persistent":
     just podcmd "mkdir -p $LOGDIR"
   fi
 
+  BLINDBIT_DIR="$ENVDIR/blindbit"
+
   BITCOIND_LOG="$LOGDIR/bitcoin.log"
+  BLINDBIT_LOG="$LOGDIR/blindbit.log"
   ESPLORA_LOG="$LOGDIR/esplora.log"
   FBBE_LOG="$LOGDIR/fbbe.log"
 
@@ -200,6 +213,28 @@ start STATE="persistent":
 
   # Start the Esplora and Electrum services
   just podcmd "electrs -vvvv --daemon-dir $ENVDIR --db-dir $ENVDIR --http-addr 0.0.0.0:3002 --electrum-rpc-addr 0.0.0.0:60401 --network=regtest --lightmode >> $ESPLORA_LOG 2>&1 &"
+
+  # Create Blindbit oracle config
+  just podcmd "mkdir -p $BLINDBIT_DIR"
+  podman --connection regtest exec -i RegtestBitcoinEnv /bin/bash -c "cat > $BLINDBIT_DIR/blindbit.toml" <<- EOF
+    # access from container host
+    host = "0.0.0.0:3004"
+    chain = "regtest"
+    rpc_endpoint = "http://127.0.0.1:18443"
+    cookie_path = "$ENVDIR/regtest/.cookie"
+    rpc_pass = ""
+    rpc_user = ""
+    sync_start_height = 1
+    max_parallel_tweak_computations = 4
+    max_parallel_requests = 4
+    tweaks_only = 0
+    tweaks_full_basic = 1
+    tweaks_full_with_dust_filter = 0
+    tweaks_cut_through_with_dust_filter = 0
+  EOF
+
+  just podcmd "blindbit --datadir $BLINDBIT_DIR >> $BLINDBIT_LOG 2>&1 &"
+
   just mine 1
 
 [group("Podman")]
@@ -263,6 +298,11 @@ esploralogs:
 [doc("Print block explorer logs to console.")]
 explorerlogs:
   just podcmd "tail -f $(just envpath)/log/fbbe.log"
+
+[group("Logs")]
+[doc("Print blindbit logs to console.")]
+blindbitlogs:
+  just podcmd "tail -f $(just envpath)/log/blindbit.log"
 
 [group("Esplora")]
 [doc("Wait for esplora to update changes in blockchain")]
