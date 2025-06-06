@@ -71,7 +71,7 @@ build TAG="1.0.0" VERSION="29.0" RELEASE="29.0" ARCH="x86_64-linux-gnu": machine
     RUN mkdir -p /bitcoin
     RUN wget -qO- ${BITCOIN_URL} | tar -xzvf - -C /bitcoin
 
-    FROM rust:1.75 AS base
+    FROM rust:latest AS base
     RUN cargo install sccache --locked
     ENV RUSTC_WRAPPER=sccache SCCACHE_DIR=/sccache
     # Install dependencies for Esplora
@@ -110,11 +110,6 @@ build TAG="1.0.0" VERSION="29.0" RELEASE="29.0" ARCH="x86_64-linux-gnu": machine
     RUN cp target/release/fbbe /build
     RUN rm -rf /fbbe
 
-    FROM rust:1.82 AS rust-bdk
-
-    # Create directory for building
-    RUN mkdir -p /build
-
     # Build bdk example crates
     RUN mkdir -p /bdk
     WORKDIR /bdk
@@ -130,9 +125,9 @@ build TAG="1.0.0" VERSION="29.0" RELEASE="29.0" ARCH="x86_64-linux-gnu": machine
     ARG BITCOIN_VERSION=26.0
     COPY --from=rust-builder /build/electrs /usr/local/bin
     COPY --from=rust-builder /build/fbbe /usr/local/bin
-    COPY --from=rust-bdk build/example_bitcoind_rpc_polling /usr/local/bin
-    COPY --from=rust-bdk build/example_electrum /usr/local/bin
-    COPY --from=rust-bdk build/example_esplora /usr/local/bin
+    COPY --from=rust-builder build/example_bitcoind_rpc_polling /usr/local/bin
+    COPY --from=rust-builder build/example_electrum /usr/local/bin
+    COPY --from=rust-builder build/example_esplora /usr/local/bin
     COPY --from=debian-builder /bitcoin/bitcoin-${BITCOIN_VERSION}/bin/bitcoin-util /usr/local/bin
     COPY --from=debian-builder /bitcoin/bitcoin-${BITCOIN_VERSION}/bin/bitcoin-cli /usr/local/bin
     COPY --from=debian-builder /bitcoin/bitcoin-${BITCOIN_VERSION}/bin/bitcoin-tx /usr/local/bin
