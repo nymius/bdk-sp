@@ -54,7 +54,7 @@ impl From<&SpOut> for TxOut {
 pub fn extract_pubkey(
     txin: TxIn,
     script_pubkey: &ScriptBuf,
-) -> Result<Option<PublicKey>, SpReceiveError> {
+) -> Result<Option<(SpInputs, PublicKey)>, SpReceiveError> {
     use SpInputs::*;
 
     tag_txin(&txin, script_pubkey)
@@ -68,7 +68,7 @@ pub fn extract_pubkey(
                     .transpose()?
                     .and_then(|pubkey| {
                         if pubkey.compressed {
-                            Some(pubkey.inner)
+                            Some((x, pubkey.inner))
                         } else {
                             None
                         }
@@ -80,8 +80,11 @@ pub fn extract_pubkey(
             P2TR => {
                 Ok(
                     // NOTE: Only x only even taproot keys should be considered
-                    XOnlyPublicKey::from_slice(&script_pubkey.as_bytes()[2..34])?
-                        .public_key(Parity::Even),
+                    (
+                        x,
+                        XOnlyPublicKey::from_slice(&script_pubkey.as_bytes()[2..34])?
+                            .public_key(Parity::Even),
+                    ),
                 )
             }
             P2PKH => {
@@ -97,7 +100,7 @@ pub fn extract_pubkey(
                                 && <PubkeyHash as AsRef<[u8; 20]>>::as_ref(&pubkey.pubkey_hash())
                                     == script_pubkey[3..23].as_bytes()
                             {
-                                Some(pubkey.inner)
+                                Some((x, pubkey.inner))
                             } else {
                                 None
                             }
@@ -267,7 +270,8 @@ pub fn compute_tweak_data(
         .zip(prevouts)
         .filter_map(|(txin, prevout)| {
             // NOTE: Public keys which couldn't be extracted will be ignored
-            extract_pubkey(txin, &prevout.script_pubkey).map_or(None, |x| x)
+            extract_pubkey(txin, &prevout.script_pubkey)
+                .map_or(None, |x| x.map(|(_input_type, key)| key))
         })
         .collect::<Vec<PublicKey>>();
 

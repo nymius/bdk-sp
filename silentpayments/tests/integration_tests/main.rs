@@ -1,3 +1,4 @@
+mod psbt;
 mod xpriv_sender;
 
 use bdk_sp::{

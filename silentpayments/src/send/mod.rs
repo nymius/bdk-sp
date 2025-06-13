@@ -1,6 +1,7 @@
 pub mod bip32;
 pub mod bip352;
 pub mod error;
+pub mod psbt;
 
 use crate::{
     compute_shared_secret,

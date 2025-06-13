@@ -52,16 +52,9 @@ impl SilentPaymentCode {
         })
     }
 
-    pub fn get_placeholder_spk(&self, amount: u32) -> Result<ScriptBuf, bitcoin::secp256k1::Error> {
-        let secp = Secp256k1::verification_only();
-        let mut eng = LabelHash::engine();
-        eng.input(&amount.to_be_bytes());
-        let label = LabelHash::from_engine(eng);
-        let amount_tweak = Scalar::from_be_bytes(label.to_byte_array())
-            .expect("hash value greater than curve order");
+    pub fn get_placeholder_p2tr_spk(&self) -> Result<ScriptBuf, bitcoin::secp256k1::Error> {
         let pubkey = self.scan.combine(&self.spend)?;
-        let amount_tweaked_pubkey = pubkey.add_exp_tweak(&secp, &amount_tweak)?;
-        let (x_only_key, _) = amount_tweaked_pubkey.x_only_public_key();
+        let (x_only_key, _) = pubkey.x_only_public_key();
         let output_key = TweakedPublicKey::dangerous_assume_tweaked(x_only_key);
         Ok(ScriptBuf::new_p2tr_tweaked(output_key))
     }
