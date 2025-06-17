@@ -1,86 +1,39 @@
+use crate::{assert_silentpayment_derivation, get_silentpayment_keys, EXTERNAL_DESCRIPTOR};
+
 use bdk_sp::{
     bitcoin::{
         absolute::LockTime,
         bip32,
-        key::{Keypair, Parity},
-        secp256k1::{Message, Secp256k1, SecretKey},
+        key::{Keypair, Parity, TweakedPublicKey},
+        secp256k1::{Message, Secp256k1},
         sighash::{Prevouts, SighashCache, TapSighashType},
         taproot::Signature,
         transaction::Version,
-        Address, Amount, BlockHash, Network, OutPoint, PrivateKey, Sequence, TapTweakHash,
+        Address, Amount, BlockHash, Network, OutPoint, ScriptBuf, Sequence, TapTweakHash,
         Transaction, TxIn, TxOut, Txid, Witness,
     },
-    encoding::SilentPaymentCode,
-    receive::scan::Scanner,
     send::bip32::XprivSilentPaymentSender,
 };
 
 use bdk_testenv::{bitcoincore_rpc::RpcApi, TestEnv};
-use bitcoin::{key::TweakedPublicKey, ScriptBuf};
 use miniscript::{descriptor::DescriptorSecretKey, Descriptor, DescriptorPublicKey};
-use std::collections::BTreeMap;
-
-const EXTERNAL_DESCRIPTOR: &str = "tr([3794bb41]tprv8ZgxMBicQKsPdnaCtnmcGNFdbPsYasZC8UJpLchusVmFodRNuKB66PhkiPWrfDhyREzj4vXtT9VfCP8mFFgy1MRo5bL4W8Z9SF241Sx4kmq/86'/1'/0'/0/*)#dg6yxkuh";
-const SILENT_PAYMENT_SPEND_PRIVKEY: &str = "cRFcZbp7cAeZGsnYKdgSZwH6drJ3XLnPSGcjLNCpRy28tpGtZR11";
-const SILENT_PAYMENT_SCAN_PRIVKEY: &str = "cTiSJ8p2zpGSkWGkvYFWfKurgWvSi9hdvzw9GEws18kS2VRPNS24";
-const SILENT_PAYMENT_ENCODED: &str = "sprt1qqw7zfpjcuwvq4zd3d4aealxq3d669s3kcde4wgr3zl5ugxs40twv2qccgvszutt7p796yg4h926kdnty66wxrfew26gu2gk5h5hcg4s2jqyascfz";
-
-fn get_silentpayment_keys() -> (SilentPaymentCode, SecretKey, SecretKey) {
-    let secp = Secp256k1::new();
-    let spend_privkey = SecretKey::from_slice(
-        &PrivateKey::from_wif(SILENT_PAYMENT_SPEND_PRIVKEY)
-            .unwrap()
-            .to_bytes(),
-    )
-    .unwrap();
-    let scan_privkey = SecretKey::from_slice(
-        &PrivateKey::from_wif(SILENT_PAYMENT_SCAN_PRIVKEY)
-            .unwrap()
-            .to_bytes(),
-    )
-    .unwrap();
-
-    let sp_code = SilentPaymentCode {
-        version: 0,
-        scan: scan_privkey.public_key(&secp),
-        spend: spend_privkey.public_key(&secp),
-        network: Network::Regtest,
-    };
-
-    assert_eq!(format!("{}", sp_code), SILENT_PAYMENT_ENCODED);
-
-    (sp_code, scan_privkey, spend_privkey)
-}
 
 #[test]
-fn receive_from_taproot_wallet_and_scan_output_successfully() -> anyhow::Result<()> {
-    let env = TestEnv::new()?;
+fn derive_silent_payment_outputs() {
+    let env = TestEnv::new().expect("Getting test environment should be trivial");
     let rpc_client = env.rpc_client();
-    let secp = Secp256k1::new();
 
-    let (txid, block_hash, txout) = fund_wallet_and_send_silent_payment(rpc_client).unwrap();
+    let (txid, block_hash, txout) =
+        fund_wallet_and_derive_silent_payment_outputs_with_xpriv_sender(rpc_client).unwrap();
     let tx_to_scan = rpc_client
         .get_raw_transaction(&txid, Some(&block_hash))
         .unwrap();
 
-    let (sp_code, scan_sk, spend_sk) = get_silentpayment_keys();
-
-    let scanner = Scanner::new(scan_sk, sp_code.spend, <BTreeMap<_, _>>::new());
-
-    let found_spouts = scanner.scan_tx(&tx_to_scan, &[txout])?;
-
-    assert!(!found_spouts.is_empty());
-
-    for sp_output in found_spouts {
-        let output_sk = spend_sk.add_tweak(&sp_output.tweak.into()).unwrap();
-        // Check the output is spendable
-        assert_eq!(output_sk.x_only_public_key(&secp).0, sp_output.xonly_pubkey);
-    }
-
-    Ok(())
+    let prevouts = vec![txout];
+    assert_silentpayment_derivation(&tx_to_scan, &prevouts);
 }
 
-fn fund_wallet_and_send_silent_payment(
+fn fund_wallet_and_derive_silent_payment_outputs_with_xpriv_sender(
     rpc_client: &impl RpcApi,
 ) -> anyhow::Result<(Txid, BlockHash, TxOut)> {
     let network = Network::Regtest;
