@@ -1,0 +1,19 @@
+[package]
+name = "dleq"
+version = "0.1.0"
+edition = "2024"
+authors.workspace = true
+
+[dependencies]
+bitcoin = { version = "0.32.6", default-features = true }
+
+[dev-dependencies]
+once_cell = "1.21.3"
+dleq = { version = "0.1.0", path = "."}
+bitcoin = { version = "0.32.6", default-features = true, features = ["serde"] }
+serde = { version = "1.0.219", features = ["derive", "rc"] }
+csv = "1.3.1"
+
+[lints]
+workspace = true
+
