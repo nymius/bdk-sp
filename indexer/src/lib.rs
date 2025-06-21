@@ -1,20 +1,23 @@
+pub use bdk_bitcoind_rpc;
+pub use bdk_chain;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::iter::Extend;
 
-use bdk_chain::{tx_graph, Merge, TxGraph};
+use bdk_chain::{Merge, TxGraph, tx_graph};
 
 use bdk_sp::encoding::SilentPaymentCode;
 use bdk_sp::{
     bitcoin::{
-        secp256k1::{PublicKey, Scalar, SecretKey},
         OutPoint, Transaction, TxOut, Txid,
+        secp256k1::{PublicKey, Scalar, SecretKey},
     },
-    receive::{scan::Scanner, SpOut, SpReceiveError},
+    receive::{SpOut, SpReceiveError, scan::Scanner},
 };
 
 use bdk_bitcoind_rpc::bitcoincore_rpc::{Client, RpcApi};
-use bitcoin::key::{Secp256k1, TweakedPublicKey};
 use bitcoin::ScriptBuf;
+use bitcoin::key::{Secp256k1, TweakedPublicKey};
 
 #[derive(Clone, Default, Debug)]
 pub struct SpIndexes {
@@ -174,11 +177,9 @@ impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
     }
 
     pub fn spends_owned_spouts(&self, tx: &Transaction) -> bool {
-        let input_matches = tx
-            .input
+        tx.input
             .iter()
-            .any(|input| self.indexes.spouts.contains_key(&input.previous_output));
-        input_matches
+            .any(|input| self.indexes.spouts.contains_key(&input.previous_output))
     }
 
     pub fn index_tx(&mut self, tx: &Transaction) -> Result<tx_graph::ChangeSet<A>, SpReceiveError> {
@@ -225,7 +226,7 @@ impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
     }
 }
 
-pub(crate) struct Custom<'a>(pub(crate) &'a Client);
+pub struct Custom<'a>(pub &'a Client);
 
 impl PrevoutSource for Custom<'_> {
     fn get_tx_prevouts(&self, tx: &Transaction) -> Vec<TxOut> {

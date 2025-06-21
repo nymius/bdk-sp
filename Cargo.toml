@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "silentpayments",
-    "example-crates/example_silentpayments", "dleq",
+    "example-crates/example_silentpayments", "dleq", "indexer",
 ]
 
 [workspace.package]

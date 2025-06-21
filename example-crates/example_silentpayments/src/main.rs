@@ -1,5 +1,3 @@
-mod indexer;
-
 use std::{
     cmp, env,
     str::FromStr,
@@ -16,11 +14,6 @@ use miniscript::{
 };
 use rand::{rng, seq::SliceRandom, RngCore};
 use serde_json::json;
-
-use bdk_chain::{
-    local_chain::{self, LocalChain},
-    tx_graph, BlockId, ChainOracle, ConfirmationBlockTime, FullTxOut, Merge, TxGraph, TxPosInBlock,
-};
 
 use bdk_file_store::Store;
 
@@ -48,12 +41,18 @@ use bdk_sp::{
     send::{bip32::XprivSilentPaymentSender, bip352::SpSender},
 };
 
-use bdk_bitcoind_rpc::{
-    bitcoincore_rpc::{Auth, Client},
-    Emitter,
+use indexer::{
+    bdk_bitcoind_rpc::{
+        bitcoincore_rpc::{Auth, Client},
+        Emitter,
+    },
+    bdk_chain::{
+        local_chain::{self, LocalChain},
+        tx_graph, BlockId, ChainOracle, ConfirmationBlockTime, FullTxOut, Merge, TxGraph,
+        TxPosInBlock,
+    },
+    Custom, SpIndexer, SpIndexes, SpIndexesChangeSet,
 };
-
-use crate::indexer::{Custom, SpIndexer, SpIndexes, SpIndexesChangeSet};
 
 #[allow(dead_code)]
 const SILENT_PAYMENT_SPEND_WIF: &str = "cRFcZbp7cAeZGsnYKdgSZwH6drJ3XLnPSGcjLNCpRy28tpGtZR11";
