@@ -7,8 +7,10 @@ use std::collections::BTreeMap;
 
 use bitcoin::{
     secp256k1::{PublicKey, Scalar, SecretKey},
-    Transaction, TxOut,
+    ScriptBuf, Transaction, TxOut,
 };
+
+use super::get_silentpayment_script_pubkey;
 
 pub struct Scanner {
     scan_sk: SecretKey,
@@ -58,5 +60,33 @@ impl Scanner {
     ) -> Result<Vec<SpOut>, SpReceiveError> {
         let ecdh_shared_secret = self.get_shared_secret(tx, prevouts)?;
         self.scan_txouts(tx, ecdh_shared_secret)
+    }
+
+    pub fn get_spks_from_tweak(&self, tweak: &PublicKey, derivation_order: u32) -> Vec<ScriptBuf> {
+        let ecdh_shared_secret = compute_shared_secret(&self.scan_sk, tweak);
+
+        let base_spk = get_silentpayment_script_pubkey(
+            &self.spend_pk,
+            &ecdh_shared_secret,
+            derivation_order,
+            None,
+        );
+
+        let mut script_pubkeys = self
+            .label_lookup
+            .keys()
+            .map(|label_pk| {
+                get_silentpayment_script_pubkey(
+                    &self.spend_pk,
+                    &ecdh_shared_secret,
+                    derivation_order,
+                    Some(label_pk),
+                )
+            })
+            .collect::<Vec<ScriptBuf>>();
+
+        script_pubkeys.push(base_spk);
+
+        script_pubkeys
     }
 }
