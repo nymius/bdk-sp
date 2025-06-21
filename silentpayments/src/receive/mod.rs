@@ -218,10 +218,10 @@ pub fn scan_txouts(
 /// Use in the context of CBF to compute posible script pubkeys without knowledge of the
 /// transaction from which the ecdh shared secret is produced.
 pub fn get_silentpayment_script_pubkey(
-    spend_pk: PublicKey,
-    ecdh_shared_secret: PublicKey,
-    maybe_label_point: Option<PublicKey>,
+    spend_pk: &PublicKey,
+    ecdh_shared_secret: &PublicKey,
     derivation_order: u32,
+    maybe_label_point: Option<&PublicKey>,
 ) -> ScriptBuf {
     let secp = Secp256k1::new();
 
@@ -244,7 +244,7 @@ pub fn get_silentpayment_script_pubkey(
             .expect("computationally unreachable: can only fail if ecdh_hash = -spend_sk (DLog of spend_pk), but ecdh_hash is the output of a hash function");
 
     P_k = if let Some(label_point) = maybe_label_point {
-        P_k.combine(&label_point)
+        P_k.combine(label_point)
                 .expect("computationally unreachable: can only fail if label (scalar) = -spend_sk (DLog of spend_pk), but label (scalar) is the output of a hash function")
     } else {
         P_k
