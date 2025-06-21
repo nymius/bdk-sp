@@ -209,8 +209,8 @@ pub fn scan_txouts(
 
 /// Get the script pubkey for silent payments derived from the current set of scan and spend
 /// public key, combined with the elliptic curve diffie hellman provided.
-/// The already_found_count is a parameter to produce the silent payment script pubkey obtained
-/// after adding alread_found_count of silent payment outputs directed to the same silent
+/// The derivation_order is a parameter to produce the silent payment script pubkey obtained
+/// after adding derivation_order of silent payment outputs directed to the same silent
 /// payment code.
 /// The optional maybe_label_into_ecc can be used to get the script pubkey from a labelled silent
 /// payment where the label is the preimage of hash(label) * G, where G is the generator point
@@ -220,8 +220,8 @@ pub fn scan_txouts(
 pub fn get_silentpayment_script_pubkey(
     spend_pk: PublicKey,
     ecdh_shared_secret: PublicKey,
-    already_found_count: u32,
     maybe_label_point: Option<PublicKey>,
+    derivation_order: u32,
 ) -> ScriptBuf {
     let secp = Secp256k1::new();
 
@@ -230,7 +230,7 @@ pub fn get_silentpayment_script_pubkey(
         eng.input(&ecdh_shared_secret.serialize());
         // Just produce spks for the first possible
         // silent payment in a tx
-        eng.input(&already_found_count.to_be_bytes());
+        eng.input(&derivation_order.to_be_bytes());
         let hash = SharedSecretHash::from_engine(eng);
         SecretKey::from_slice(&hash.to_byte_array())
             .expect("computationally unreachable: only if hash value greater than curve order")
