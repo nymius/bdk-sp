@@ -593,6 +593,8 @@ full_silentpayment_flow:
     echo "BDK silentpayments wallet balance"
     just bdk_sp balance
 
+    read -p "Press Enter to continue" </dev/tty
+
   fi
 
   just stop
