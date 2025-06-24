@@ -34,6 +34,15 @@ pub struct SilentPaymentCode {
 }
 
 impl SilentPaymentCode {
+    pub fn new_v0(scan: PublicKey, spend: PublicKey, network: Network) -> Self {
+        SilentPaymentCode {
+            version: 0,
+            scan,
+            spend,
+            network,
+        }
+    }
+
     pub fn get_label(scan_sk: SecretKey, m: u32) -> Scalar {
         let mut eng = LabelHash::engine();
         eng.input(&scan_sk.secret_bytes());
