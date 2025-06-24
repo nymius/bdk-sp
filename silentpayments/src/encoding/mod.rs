@@ -27,7 +27,7 @@ pub const SPRT: Hrp = Hrp::parse_unchecked("sprt");
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SilentPaymentCode {
-    pub version: u8,
+    version: u8,
     pub scan: PublicKey,
     pub spend: PublicKey,
     pub network: Network,
@@ -67,6 +67,10 @@ impl SilentPaymentCode {
         let output_key = TweakedPublicKey::dangerous_assume_tweaked(x_only_key);
         Ok(ScriptBuf::new_p2tr_tweaked(output_key))
     }
+
+    pub fn version(&self) -> u8 {
+        self.version
+    }
 }
 
 impl core::fmt::Display for SilentPaymentCode {
@@ -84,11 +88,8 @@ impl core::fmt::Display for SilentPaymentCode {
 
         let data = [scan_key_bytes, tweaked_spend_pubkey_bytes].concat();
 
-        let version = [self.version]
-            .iter()
-            .copied()
-            .bytes_to_fes()
-            .collect::<Vec<Fe32>>()[0];
+        let version =
+            Fe32::try_from(self.version).expect("should be within the GF(32) limits: 0-31");
 
         let encoded_silent_payment_code = data
             .iter()

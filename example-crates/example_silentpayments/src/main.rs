@@ -1111,12 +1111,11 @@ fn get_sp_code_from_descriptors(
             (Descriptor::Tr(scan_), Descriptor::Tr(spend_)) => {
                 let scan = scan_.internal_key().to_public_key();
                 let spend = spend_.internal_key().to_public_key();
-                Ok(SilentPaymentCode {
-                    scan: bitcoin::secp256k1::PublicKey::from_slice(&scan.to_bytes()[..])?,
-                    spend: bitcoin::secp256k1::PublicKey::from_slice(&spend.to_bytes()[..])?,
-                    version: 0,
+                Ok(SilentPaymentCode::new_v0(
+                    bitcoin::secp256k1::PublicKey::from_slice(&scan.to_bytes()[..])?,
+                    bitcoin::secp256k1::PublicKey::from_slice(&spend.to_bytes()[..])?,
                     network,
-                })
+                ))
             }
             _ => bail!("Silent payment descriptors can only be Taproot."),
         }

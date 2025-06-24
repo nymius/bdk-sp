@@ -38,12 +38,7 @@ fn process_receiving_given(
     let spend_pk = key_material.spend_priv_key.public_key(&secp);
     let scan_pk = key_material.scan_priv_key.public_key(&secp);
 
-    let sp_code = SilentPaymentCode {
-        version: 0,
-        scan: scan_pk,
-        spend: spend_pk,
-        network: bitcoin::Network::Bitcoin,
-    };
+    let sp_code = SilentPaymentCode::new_v0(scan_pk, spend_pk, bitcoin::Network::Bitcoin);
 
     let mut label_lookup = <BTreeMap<bitcoin::secp256k1::PublicKey, (Scalar, u32)>>::new();
     let mut all_sp_codes = HashSet::new();

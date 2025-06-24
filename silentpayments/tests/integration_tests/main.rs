@@ -49,12 +49,11 @@ pub fn get_silentpayment_keys() -> (SilentPaymentCode, SecretKey, SecretKey) {
     )
     .unwrap();
 
-    let sp_code = SilentPaymentCode {
-        version: 0,
-        scan: scan_privkey.public_key(&secp),
-        spend: spend_privkey.public_key(&secp),
-        network: Network::Regtest,
-    };
+    let sp_code = SilentPaymentCode::new_v0(
+        scan_privkey.public_key(&secp),
+        spend_privkey.public_key(&secp),
+        Network::Regtest,
+    );
 
     assert_eq!(format!("{}", sp_code), SILENT_PAYMENT_ENCODED);
 
