@@ -118,17 +118,24 @@ impl TryFrom<&str> for SilentPaymentCode {
         let mut payload = checked_hrpstring.fe32_iter::<&mut dyn Iterator<Item = u8>>();
 
         let version = payload.nth(0).into_iter().collect::<Vec<_>>()[0].to_u8();
-        let data = match version {
+        let data = payload.fes_to_bytes().collect::<Vec<u8>>();
+        let keys = match version {
             0 => {
-                let data = payload.fes_to_bytes().collect::<Vec<u8>>();
                 if data.len() != 66 {
                     return Err(VersionError::WrongPayloadLength)?;
                 } else {
                     data
                 }
             }
+            1..=30 => {
+                if data.len() < 66 {
+                    return Err(VersionError::WrongPayloadLength)?;
+                } else {
+                    data.into_iter().take(66).collect::<Vec<u8>>()
+                }
+            }
             31 => return Err(VersionError::BackwardIncompatibleVersion)?,
-            _ => return Err(VersionError::NotSupported)?,
+            _ => unreachable!("GF(32) values can only belong to the 0-31 range"),
         };
 
         let network = if hrp == SP {
@@ -141,8 +148,8 @@ impl TryFrom<&str> for SilentPaymentCode {
             Err(UnknownHrpError(hrp.to_lowercase()))
         }?;
 
-        let scan = PublicKey::from_slice(&data[..33])?;
-        let spend = PublicKey::from_slice(&data[33..66])?;
+        let scan = PublicKey::from_slice(&keys[..33])?;
+        let spend = PublicKey::from_slice(&keys[33..66])?;
 
         Ok(Self {
             scan,
