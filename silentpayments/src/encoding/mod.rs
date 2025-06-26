@@ -76,11 +76,11 @@ impl SilentPaymentCode {
 impl core::fmt::Display for SilentPaymentCode {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let hrp = match self.network {
-            Network::Bitcoin => self::SP,
-            Network::Testnet | Network::Testnet4 | Network::Signet => self::TSP,
+            Network::Bitcoin => SP,
+            Network::Testnet | Network::Testnet4 | Network::Signet => TSP,
             // NOTE: Shouldn't be any other case than Regtest, but add because Network is non
             // exhaustive
-            _ => self::SPRT,
+            _ => SPRT,
         };
 
         let scan_key_bytes = self.scan.serialize();
