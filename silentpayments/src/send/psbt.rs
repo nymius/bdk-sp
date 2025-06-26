@@ -108,7 +108,7 @@ where
             create_silentpayment_partial_secret(&smallest_outpoint, &spks_with_keys)?;
         let silent_payments = create_silentpayment_scriptpubkeys(partial_secret, recipients)?;
         for (sp_code, x_only_pks) in silent_payments.iter() {
-            let placeholder_spk = sp_code.get_placeholder_p2tr_spk()?;
+            let placeholder_spk = sp_code.get_placeholder_p2tr_spk();
             for x_only_pubkey in x_only_pks {
                 if let Some(idx) = tx
                     .output

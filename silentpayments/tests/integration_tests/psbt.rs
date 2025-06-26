@@ -96,7 +96,7 @@ fn fund_wallet_and_derive_silent_payment_outputs_from_psbt(
 
     let sp_payment = TxOut {
         value: txout.value - Amount::from_sat(1000),
-        script_pubkey: sp_code.get_placeholder_p2tr_spk()?,
+        script_pubkey: sp_code.get_placeholder_p2tr_spk(),
     };
 
     let silent_payment_txin = TxIn {

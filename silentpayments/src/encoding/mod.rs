@@ -13,11 +13,12 @@ use bitcoin::{
         },
         Fe32, Hrp,
     },
-    hashes::{Hash, HashEngine},
+    hashes::{sha256, Hash, HashEngine},
     key::{Secp256k1, TweakedPublicKey},
     secp256k1::{PublicKey, Scalar, SecretKey},
     Network, ScriptBuf,
 };
+
 /// Human readable prefix for encoding bitcoin Mainnet silent payment codes
 pub const SP: Hrp = Hrp::parse_unchecked("sp");
 /// Human readable prefix for encoding bitcoin Testnet (3 or 4) or Signet silent payment codes
@@ -61,11 +62,15 @@ impl SilentPaymentCode {
         })
     }
 
-    pub fn get_placeholder_p2tr_spk(&self) -> Result<ScriptBuf, bitcoin::secp256k1::Error> {
-        let pubkey = self.scan.combine(&self.spend)?;
+    pub fn get_placeholder_p2tr_spk(&self) -> ScriptBuf {
+        let secp = Secp256k1::verification_only();
+        let spend_hash = sha256::Hash::hash(&self.spend.serialize());
+        let placeholder_tweak = Scalar::from_be_bytes(spend_hash.to_byte_array())
+            .expect("hash value greater than curve order");
+        let pubkey = self.scan.add_exp_tweak(&secp, &placeholder_tweak).expect("computationally unreachable: can only fail if placeholder_tweak = -scan_sk, but placeholder_tweak is the output of a hash function");
         let (x_only_key, _) = pubkey.x_only_public_key();
         let output_key = TweakedPublicKey::dangerous_assume_tweaked(x_only_key);
-        Ok(ScriptBuf::new_p2tr_tweaked(output_key))
+        ScriptBuf::new_p2tr_tweaked(output_key)
     }
 
     pub fn version(&self) -> u8 {
