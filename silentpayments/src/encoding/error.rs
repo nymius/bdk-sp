@@ -90,8 +90,6 @@ pub enum VersionError {
     BackwardIncompatibleVersion,
     /// The length of the payload doesn't match the version of the code
     WrongPayloadLength,
-    /// The version provided is greater than 31 or is not supported by the current code
-    NotSupported,
 }
 
 impl core::fmt::Display for VersionError {
@@ -103,7 +101,6 @@ impl core::fmt::Display for VersionError {
                 write!(f, "version 31 codes are not backward compatible")
             }
             WrongPayloadLength => write!(f, "payload length does not match version spec"),
-            NotSupported => write!(f, "unsupported version"),
         }
     }
 }
