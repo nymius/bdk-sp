@@ -1,0 +1,37 @@
+name: Code Coverage
+
+on:
+  push:
+    branches: [ "develop" ]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: "-Cinstrument-coverage"
+      RUSTDOCFLAGS: "-Cinstrument-coverage"
+      LLVM_PROFILE_FILE: "./target/coverage/%p-%m.profraw"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@v1
+        with:
+            toolchain: stable
+            components: llvm-tools-preview
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2.7.8
+      - name: Install grcov
+        run: if [[ ! -e ~/.cargo/bin/grcov ]]; then cargo install grcov; fi
+      - name: Test
+        run: cargo test --all-features
+      - name: Run grcov
+        run: grcov . --binary-path ./target/debug/ -s . -t markdown --ignore-not-existing --excl-start "#\[cfg\(test\)\]" --excl-br-line "^\s*((debug_)?assert(_eq|_ne)?!|#\[derive\()" --excl-line "^\s*\S+\s*(=>)?\s*unreachable!.*" --ignore="**/example-crates/*" --ignore="**/tests/*" --ignore '/*' --ignore '**/examples/*'
