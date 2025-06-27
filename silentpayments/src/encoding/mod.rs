@@ -1,3 +1,20 @@
+/// # Silent Payments Encoding Module
+///
+/// This module provides functionality for encoding, decoding, and managing silent payment codes.
+/// silent payments are a privacy-enhancing protocol in Bitcoin that allows recipients to receive
+/// payments without revealing their addresses or creating any on-chain link between payments.
+///
+/// The module handles:
+/// - Creating and parsing silent payment codes in Bech32m format
+/// - Managing scan and spend keys for silent payment codes.
+/// - Network-specific encoding with appropriate human-readable prefixes
+/// - Version compatibility for forward/backward compatibility
+/// - Generating payment scripts from silent payment codes
+///
+/// silent payment codes follow a structured format with network-specific prefixes:
+/// - `sp` for Bitcoin mainnet
+/// - `tsp` for Testnet/Signet
+/// - `sprt` for Regtest
 pub mod error;
 
 use crate::hashes::LabelHash;
@@ -26,15 +43,55 @@ pub const TSP: Hrp = Hrp::parse_unchecked("tsp");
 /// Human readable prefix for encoding bitcoin regtest silent payment codes
 pub const SPRT: Hrp = Hrp::parse_unchecked("sprt");
 
+/// Represents a silent payment code containing the necessary keys and network information.
+///
+/// A silent payment code consists of:
+/// - A version byte indicating the protocol version
+/// - A scan public key used for scanning the blockchain for payments
+/// - A spend public key used for spending received payments
+/// - The Bitcoin network to which this code applies
+///
+/// Silent payment codes are encoded using [`Bech32m`] with network-specific human-readable prefixes
+/// and can be converted to and from string representations.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SilentPaymentCode {
+    /// The protocol version (currently the only supported one is v0)
     version: u8,
+    /// The public key used for scanning the blockchain for payments
     pub scan: PublicKey,
+    /// The public key used for spending received payments
     pub spend: PublicKey,
+    /// The Bitcoin network this code is valid for
     pub network: Network,
 }
 
 impl SilentPaymentCode {
+    /// Creates a new version 0 silent payment code.
+    ///
+    /// # Arguments
+    /// * `scan` - The public key used for scanning the blockchain
+    /// * `spend` - The public key used for spending received funds
+    /// * `network` - The Bitcoin network this code is valid for
+    ///
+    /// # Returns
+    /// A new [`SilentPaymentCode`] with version 0
+    ///
+    /// # Examples
+    /// ```rust
+    /// use bdk_sp::encoding::SilentPaymentCode;
+    /// use bitcoin::{
+    ///     key::rand,
+    ///     secp256k1::{PublicKey, Secp256k1},
+    ///     Network,
+    /// };
+    ///
+    /// let secp = Secp256k1::new();
+    /// let (_, scan_pk) = secp.generate_keypair(&mut rand::thread_rng());
+    /// let (_, spend_pk) = secp.generate_keypair(&mut rand::thread_rng());
+    ///
+    /// let sp_code = SilentPaymentCode::new_v0(scan_pk, spend_pk, Network::Bitcoin);
+    /// assert_eq!(sp_code.version(), 0);
+    /// ```
     pub fn new_v0(scan: PublicKey, spend: PublicKey, network: Network) -> Self {
         SilentPaymentCode {
             version: 0,
@@ -44,6 +101,33 @@ impl SilentPaymentCode {
         }
     }
 
+    /// Generates a scalar from a scan secret key and a numeric label.
+    ///
+    /// This function creates a deterministic scalar that can be used to tweak the spend key.
+    /// It hashes the scan secret key together with a numeric label.
+    ///
+    /// # Arguments
+    /// * `scan_sk` - The scan secret key
+    /// * `m` - A 32-bit numeric label
+    ///
+    /// # Returns
+    /// A [`Scalar`] derived from hashing the scan [`SecretKey`] and the numeric label
+    ///
+    /// # Examples
+    /// ```rust
+    /// use bdk_sp::encoding::SilentPaymentCode;
+    /// use bitcoin::{
+    ///     key::rand,
+    ///     secp256k1::{Secp256k1, SecretKey},
+    /// };
+    ///
+    /// let secp = Secp256k1::new();
+    /// let scan_sk = SecretKey::new(&mut rand::thread_rng());
+    /// let numeric_label = 42;
+    ///
+    /// let label = SilentPaymentCode::get_label(scan_sk, numeric_label);
+    /// // The label is a deterministic scalar derived from the scan key and the numeric label
+    /// ```
     pub fn get_label(scan_sk: SecretKey, m: u32) -> Scalar {
         let mut eng = LabelHash::engine();
         eng.input(&scan_sk.secret_bytes());
@@ -53,6 +137,42 @@ impl SilentPaymentCode {
         Scalar::from_be_bytes(label.to_byte_array()).expect("hash value greater than curve order")
     }
 
+    /// Adds a label to the spend key of this silent payment code.
+    ///
+    /// This function creates a new silent payment code with the spend key tweaked by the given label.
+    /// This is used to create labeled codes for different purposes.
+    ///
+    /// # Arguments
+    /// * `label` - The scalar to add to the spend key
+    ///
+    /// # Returns
+    /// A new [`SilentPaymentCode`] with the tweaked spend key
+    ///
+    /// # Errors
+    /// Returns an error if the tweaking operation fails
+    ///
+    /// # Examples
+    /// ```rust
+    /// use bdk_sp::encoding::SilentPaymentCode;
+    /// use bitcoin::{
+    ///     key::rand,
+    ///     secp256k1::{Scalar, Secp256k1},
+    /// };
+    ///
+    /// // Assuming we have a valid SilentPaymentCode
+    /// # let secp = Secp256k1::new();
+    /// # let (_, scan_pk) = secp.generate_keypair(&mut rand::thread_rng());
+    /// # let (_, spend_pk) = secp.generate_keypair(&mut rand::thread_rng());
+    /// # let sp_code = SilentPaymentCode::new_v0(scan_pk, spend_pk, bitcoin::Network::Bitcoin);
+    ///
+    /// // Create a label (typically derived from get_label)
+    /// let label_bytes = [1u8; 32];
+    /// let label = Scalar::from_be_bytes(label_bytes).unwrap();
+    ///
+    /// // Add the label to the payment code
+    /// let labeled_code = sp_code.add_label(label).unwrap();
+    /// // The new code has the same scan key but a tweaked spend key
+    /// ```
     pub fn add_label(&self, label: Scalar) -> Result<SilentPaymentCode, bitcoin::secp256k1::Error> {
         let secp = Secp256k1::verification_only();
 
@@ -62,6 +182,29 @@ impl SilentPaymentCode {
         })
     }
 
+    /// Generates a placeholder P2TR script public key for this silent payment code.
+    ///
+    /// This function creates a Pay-to-Taproot script pubkey that can be used as a placeholder for
+    /// the future silent payment final script pubkey. It's derived by tweaking the scan public key
+    /// with a hash of the spend public key.
+    ///
+    /// # Returns
+    /// A Pay-to-Taproot script public key [`ScriptBuf`]
+    ///
+    /// # Examples
+    /// ```rust
+    /// use bdk_sp::encoding::SilentPaymentCode;
+    /// use bitcoin::{key::rand, secp256k1::Secp256k1};
+    ///
+    /// // Assuming we have a valid SilentPaymentCode
+    /// # let secp = Secp256k1::new();
+    /// # let (_, scan_pk) = secp.generate_keypair(&mut rand::thread_rng());
+    /// # let (_, spend_pk) = secp.generate_keypair(&mut rand::thread_rng());
+    /// # let sp_code = SilentPaymentCode::new_v0(scan_pk, spend_pk, bitcoin::Network::Bitcoin);
+    ///
+    /// let script_pubkey = sp_code.get_placeholder_p2tr_spk();
+    /// // script_pubkey can be used as a placeholder output script
+    /// ```
     pub fn get_placeholder_p2tr_spk(&self) -> ScriptBuf {
         let secp = Secp256k1::verification_only();
         let spend_hash = sha256::Hash::hash(&self.spend.serialize());
@@ -73,12 +216,56 @@ impl SilentPaymentCode {
         ScriptBuf::new_p2tr_tweaked(output_key)
     }
 
+    /// Returns the version of this silent payment code.
+    ///
+    /// # Returns
+    /// The version number as a `u8`
+    ///
+    /// # Examples
+    /// ```rust
+    /// use bdk_sp::encoding::SilentPaymentCode;
+    /// use bitcoin::{key::rand, secp256k1::Secp256k1};
+    ///
+    /// // Assuming we have a valid SilentPaymentCode
+    /// # let secp = Secp256k1::new();
+    /// # let (_, scan_pk) = secp.generate_keypair(&mut rand::thread_rng());
+    /// # let (_, spend_pk) = secp.generate_keypair(&mut rand::thread_rng());
+    /// # let sp_code = SilentPaymentCode::new_v0(scan_pk, spend_pk, bitcoin::Network::Bitcoin);
+    ///
+    /// let version = sp_code.version();
+    /// assert_eq!(version, 0);
+    /// ```
     pub fn version(&self) -> u8 {
         self.version
     }
 }
 
 impl core::fmt::Display for SilentPaymentCode {
+    /// Formats the silent payment code as a [`Bech32m`] string.
+    ///
+    /// This implementation encodes the silent payment code using the appropriate
+    /// network-specific human-readable prefix and [`Bech32m`] encoding.
+    ///
+    /// # Arguments
+    /// * `f` - The formatter to write to
+    ///
+    /// # Returns
+    /// Nothing on success, a format error otherwise
+    ///
+    /// # Examples
+    /// ```rust
+    /// use bdk_sp::encoding::SilentPaymentCode;
+    /// use bitcoin::{key::rand, secp256k1::Secp256k1};
+    ///
+    /// // Assuming we have a valid SilentPaymentCode
+    /// # let secp = Secp256k1::new();
+    /// # let (_, scan_pk) = secp.generate_keypair(&mut rand::thread_rng());
+    /// # let (_, spend_pk) = secp.generate_keypair(&mut rand::thread_rng());
+    /// # let sp_code = SilentPaymentCode::new_v0(scan_pk, spend_pk, bitcoin::Network::Bitcoin);
+    ///
+    /// let encoded = sp_code.to_string();
+    /// // encoded is a Bech32m string starting with "sp1"
+    /// ```
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let hrp = match self.network {
             Network::Bitcoin => SP,
@@ -112,6 +299,35 @@ impl core::fmt::Display for SilentPaymentCode {
 impl TryFrom<&str> for SilentPaymentCode {
     type Error = ParseError;
 
+    /// Attempts to parse a string as a silent payment code.
+    ///
+    /// This implementation decodes a [`Bech32m`] string into a silent payment code,
+    /// handling different networks and versions appropriately.
+    ///
+    /// # Arguments
+    /// * `s` - The string to parse
+    ///
+    /// # Returns
+    /// A `Result` containing either the parsed [`SilentPaymentCode`] or a [`ParseError`]
+    ///
+    /// # Examples
+    /// ```rust
+    /// use bdk_sp::encoding::SilentPaymentCode;
+    ///
+    /// // Example of a valid silent payment code string (this is just for illustration)
+    /// let sp_code_str = "sp1qkwmj8px0rndxx9euxtx42jf9azw9yk0nqnxnqgx8v3kqpdk0chgk27690g";
+    ///
+    /// // Parse the string
+    /// let result = SilentPaymentCode::try_from(sp_code_str);
+    ///
+    /// // Check if parsing succeeded
+    /// if let Ok(sp_code) = result {
+    ///     println!("Successfully parsed silent payment code");
+    ///     assert_eq!(sp_code.network, bitcoin::Network::Bitcoin);
+    /// } else {
+    ///     println!("Failed to parse silent payment code");
+    /// }
+    /// ```
     fn try_from(s: &str) -> Result<SilentPaymentCode, ParseError> {
         let checked_hrpstring = CheckedHrpstring::new::<Bech32m>(s)?;
         let hrp = checked_hrpstring.hrp();
