@@ -1,7 +1,4 @@
-use bitcoin::{
-    bech32::primitives::decode::CheckedHrpstringError,
-    secp256k1,
-};
+use bitcoin::{bech32::primitives::decode::CheckedHrpstringError, secp256k1};
 
 /// Silent payment code parsing error
 #[derive(Debug)]
