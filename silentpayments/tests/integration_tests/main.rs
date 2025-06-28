@@ -55,7 +55,7 @@ pub fn get_silentpayment_keys() -> (SilentPaymentCode, SecretKey, SecretKey) {
         Network::Regtest,
     );
 
-    assert_eq!(format!("{}", sp_code), SILENT_PAYMENT_ENCODED);
+    assert_eq!(sp_code.to_string(), SILENT_PAYMENT_ENCODED);
 
     (sp_code, scan_privkey, spend_privkey)
 }
