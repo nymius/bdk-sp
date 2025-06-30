@@ -377,6 +377,7 @@ impl TryFrom<&str> for SilentPaymentCode {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod test {
     use std::str::FromStr;
 
