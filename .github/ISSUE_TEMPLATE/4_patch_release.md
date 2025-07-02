@@ -4,7 +4,6 @@ about: Create a new patch release [for release managers only]
 title: 'Release MAJOR.MINOR.PATCH+1'
 labels: 'release'
 assignees: ''
-
 ---
 
 ## Create a new release
