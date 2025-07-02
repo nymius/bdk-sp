@@ -4,7 +4,6 @@ about: Create a new minor release [for release managers only]
 title: 'Release MAJOR.MINOR+1.0'
 labels: 'release'
 assignees: ''
-
 ---
 
 ## Create a new minor release
