@@ -17,3 +17,6 @@ Cargo.lock
 
 # Ignore media (should go into media branch)
 *.gif
+
+# Ignore cargo-mutants generated output
+/mutants.out*

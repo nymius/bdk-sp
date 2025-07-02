@@ -14,3 +14,8 @@ print_stderr = "deny"
 
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage,coverage_nightly)'] }
+
+[profile.mutants]
+inherits = "test"
+debug = "none"
+opt-level = 3
