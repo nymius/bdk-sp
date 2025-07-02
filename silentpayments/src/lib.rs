@@ -65,16 +65,33 @@ pub fn tag_txin(txin: &TxIn, script_pubkey: &ScriptBuf) -> Option<SpInputs> {
 }
 
 pub fn get_smallest_lexicographic_outpoint(outpoints: &[OutPoint]) -> [u8; 36] {
-    outpoints
+    // Find the outpoint with the smallest lexicographic order
+    let smallest = outpoints
         .iter()
-        .map(|x| {
-            let mut outpoint_bytes = [0u8; 36];
-            outpoint_bytes[..32].copy_from_slice(x.txid.to_raw_hash().as_byte_array());
-            outpoint_bytes[32..36].copy_from_slice(&x.vout.to_le_bytes());
-            outpoint_bytes
+        .min_by(|a, b| {
+            // Compare txids first
+            let a_txid = a.txid.to_raw_hash();
+            let b_txid = b.txid.to_raw_hash();
+
+            // If txids are different, compare them
+            match a_txid.as_byte_array().cmp(b_txid.as_byte_array()) {
+                std::cmp::Ordering::Equal => {
+                    // If txids are equal, compare vouts directly
+                    let a_vout_bytes = a.vout.to_le_bytes();
+                    let b_vout_bytes = b.vout.to_le_bytes();
+                    a_vout_bytes.cmp(&b_vout_bytes)
+                }
+                other => other,
+            }
         })
-        .min()
-        .expect("cannot create silent payment script pubkey without outpoints")
+        .expect("cannot create silent payment script pubkey without outpoints");
+
+    // Only allocate the result array once we have the smallest outpoint
+    let mut result = [0u8; 36];
+    result[..32].copy_from_slice(smallest.txid.to_raw_hash().as_byte_array());
+    result[32..36].copy_from_slice(&smallest.vout.to_le_bytes());
+
+    result
 }
 
 pub fn compute_shared_secret(sk: &SecretKey, pk: &PublicKey) -> PublicKey {
