@@ -2,7 +2,7 @@ name: Code Coverage
 
 on:
   push:
-    branches: [ "develop" ]
+    branches: [ "ci/test-coverage" ]
   pull_request:
 
 env:
@@ -12,8 +12,6 @@ jobs:
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
-    env:
-      CARGO_INCREMENTAL: 0
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,4 +25,4 @@ jobs:
       - name: Install cargo-llvm-cov
         run: if [[ ! -e ~/.cargo/bin/cargo-llvm-cov ]]; then cargo install cargo-llvm-cov; fi
       - name: Test and report coverage
-        run: cargo +nightly llvm-cov -q --doctests --branch --workspace --ignore-filename-regex "example-crates/*"
+        run: cargo +nightly llvm-cov -q --doctests --branch --all --ignore-filename-regex "(example-crates/*|crates/testenv/*)" --all-features
