@@ -124,13 +124,21 @@ pub fn create_silentpayment_scriptpubkeys(
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
-    use bitcoin::secp256k1::{PublicKey, SecretKey};
+    use bitcoin::{
+        hex::DisplayHex,
+        opcodes::all::OP_NUMEQUAL,
+        script::Builder,
+        secp256k1::{PublicKey, SecretKey},
+        PrivateKey, PubkeyHash, WPubkeyHash,
+    };
+    use miniscript::ToPublicKey;
     use std::str::FromStr;
 
     const SCAN_PK_1: &str = "03f95241dfb00d1d42e2f48fb72e31a06b9fd166c1d6bd12648b41977dd51b9a0b";
     const SPEND_PK_1: &str = "032e58afe51f9ed8ad3cc7897f634d881fdbe49a81564629ded8156bebd2ffd1af";
     const SCAN_PK_2: &str = "03c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5";
     const SPEND_PK_2: &str = "02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9";
+    const PRIV_KEY: &str = "cVt4o7BGAig1UXywgGSmARhxMdzP5qvQsxKkSsc1XEkw3tDTQFpy";
     const PARTIAL_SECRET_1: &str =
         "d5c68eccb3ddd0fab0bf504209b8b6ce3f51832beb136a5f91ade54bc059f9b8";
     const PARTIAL_SECRET_2: &str =
@@ -153,6 +161,147 @@ mod tests {
         let sp_code_3 = sp_code_1.add_label(Scalar::MAX).expect("should succeed");
 
         (partial_secret, vec![sp_code_1, sp_code_2, sp_code_3])
+    }
+
+    fn get_smallest_outpoint() -> [u8; 36] {
+        let mut smallest_outpoint_bytes = [2u8; 36];
+        smallest_outpoint_bytes[32..36].copy_from_slice(&1u32.to_le_bytes());
+        smallest_outpoint_bytes
+    }
+
+    #[test]
+    fn test_create_partial_secret_base() {
+        let expected_secret = "a2a81adc53cfa31e6e578c085239aab95cb37549f2fb0c8a9028dde883aa4a67";
+
+        let smallest_outpoint = get_smallest_outpoint();
+        let spks_with_keys = {
+            let secp = Secp256k1::new();
+            let prv_k = PrivateKey::from_str(PRIV_KEY).expect("reading from constant");
+            let pk = prv_k.public_key(&secp);
+            let mut spks_with_keys: Vec<(ScriptBuf, SecretKey)> = vec![];
+
+            let script = Builder::new()
+                .push_opcode(OP_NUMEQUAL)
+                .push_verify()
+                .into_script();
+            let script_hash = script.script_hash();
+            let pubkey_hash = PubkeyHash::hash(&pk.inner.serialize());
+            let wpubkey_hash = WPubkeyHash::hash(&pk.inner.serialize());
+
+            let p2sh = ScriptBuf::new_p2sh(&script_hash);
+            spks_with_keys.push((p2sh, prv_k.inner));
+
+            let p2pkh = ScriptBuf::new_p2pkh(&pubkey_hash);
+            spks_with_keys.push((p2pkh, prv_k.inner));
+
+            let p2wpkh = ScriptBuf::new_p2wpkh(&wpubkey_hash);
+            spks_with_keys.push((p2wpkh, prv_k.inner));
+
+            let (_, parity) = prv_k.inner.x_only_public_key(&secp);
+            let even_sk = if parity == Parity::Odd {
+                prv_k.inner.negate()
+            } else {
+                prv_k.inner
+            };
+            let pk = even_sk.public_key(&secp);
+            let x_only_pubkey = pk.to_x_only_pubkey();
+            let p2tr = ScriptBuf::new_p2tr(&secp, x_only_pubkey, None);
+            spks_with_keys.push((p2tr, even_sk));
+
+            spks_with_keys
+        };
+
+        let partial_secret =
+            create_silentpayment_partial_secret(&smallest_outpoint, &spks_with_keys)
+                .expect("should succeed");
+
+        assert_eq!(
+            expected_secret,
+            partial_secret.secret_bytes().as_hex().to_string()
+        );
+    }
+
+    #[test]
+    fn test_create_partial_secret_no_inputs_for_secret_derivation() {
+        let smallest_outpoint = get_smallest_outpoint();
+        let spks_with_keys = {
+            let secp = Secp256k1::new();
+            let prv_k = PrivateKey::from_str(PRIV_KEY).expect("reading from constant");
+            let pk = prv_k.public_key(&secp);
+            let p2pk = ScriptBuf::new_p2pk(&pk);
+            vec![(p2pk, prv_k.inner)]
+        };
+
+        let error = create_silentpayment_partial_secret(&smallest_outpoint, &spks_with_keys)
+            .expect_err("should fail");
+
+        assert_eq!(
+            "No available inputs for shared secret derivation",
+            error.to_string()
+        );
+    }
+
+    #[test]
+    fn test_create_partial_secret_flip_p2tr_key() {
+        let expected_secret = "1449c8855c10392e73734e7b4267c573667bc233d8bc69ce505341cb4a8b58a7";
+
+        let smallest_outpoint = get_smallest_outpoint();
+        let spks_with_keys = {
+            let secp = Secp256k1::new();
+            let prv_k = PrivateKey::from_str(PRIV_KEY).expect("reading from constant");
+
+            let (_, parity) = prv_k.inner.x_only_public_key(&secp);
+            // Flip the secret key so create_silentpayment_partial_secret flips it again
+            let even_sk = if parity == Parity::Even {
+                prv_k.inner.negate()
+            } else {
+                prv_k.inner
+            };
+            let pk = even_sk.public_key(&secp);
+            let x_only_pubkey = pk.to_x_only_pubkey();
+            let p2tr = ScriptBuf::new_p2tr(&secp, x_only_pubkey, None);
+
+            vec![(p2tr, even_sk)]
+        };
+
+        let partial_secret =
+            create_silentpayment_partial_secret(&smallest_outpoint, &spks_with_keys)
+                .expect("should succeed");
+
+        assert_eq!(
+            expected_secret,
+            partial_secret.secret_bytes().as_hex().to_string()
+        );
+    }
+
+    #[test]
+    fn test_create_partial_secret_point_to_infinity() {
+        let smallest_outpoint = get_smallest_outpoint();
+        let spks_with_keys = {
+            let secp = Secp256k1::new();
+            let prv_k = PrivateKey::from_str(PRIV_KEY).expect("reading from constant");
+            let pk = prv_k.public_key(&secp);
+            let mut spks_with_keys: Vec<(ScriptBuf, SecretKey)> = vec![];
+
+            let pubkey_hash = PubkeyHash::hash(&pk.inner.serialize());
+
+            let p2pkh = ScriptBuf::new_p2pkh(&pubkey_hash);
+            spks_with_keys.push((p2pkh, prv_k.inner));
+
+            let neg_sk = prv_k.inner.negate();
+            let neg_pk = neg_sk.public_key(&secp);
+            let neg_pubkey_hash = PubkeyHash::hash(&neg_pk.serialize());
+            let neg_p2pkh = ScriptBuf::new_p2pkh(&neg_pubkey_hash);
+
+            spks_with_keys.push((neg_p2pkh, neg_sk));
+
+            spks_with_keys
+        };
+
+        let error = create_silentpayment_partial_secret(&smallest_outpoint, &spks_with_keys)
+            .expect_err("should fail");
+
+        assert_eq!("Silent payment sending error: bad tweak", error.to_string());
     }
 
     #[test]
