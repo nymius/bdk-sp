@@ -44,6 +44,10 @@ pub fn create_silentpayment_partial_secret(
         })
         .collect::<Vec<SecretKey>>();
 
+    if available_keys.is_empty() {
+        return Err(SpSendError::MissingInputsForSharedSecretDerivation);
+    }
+
     // Use first derived_secret key to initialize a_sum
     let mut a_sum = available_keys[0];
     // Then skip first element to avoid reuse
