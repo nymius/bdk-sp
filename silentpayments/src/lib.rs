@@ -29,38 +29,37 @@ pub enum SpInputs {
 pub fn tag_txin(txin: &TxIn, script_pubkey: &ScriptBuf) -> Option<SpInputs> {
     use SpInputs::*;
 
-    if !txin.witness.is_empty() {
-        if !txin.script_sig.is_empty()
-            && script_pubkey.is_p2sh()
-            && txin
-                .script_sig
-                .redeem_script()
-                .filter(|script| script.is_p2wpkh())
-                .is_some()
-        {
-            Some(WrappedSegwit)
-        } else if !txin.script_sig.is_empty() {
-            None
-        } else if script_pubkey.is_p2wpkh() {
-            Some(P2WPKH)
-        } else if script_pubkey.is_p2tr() {
-            if txin
-                .witness
-                .taproot_control_block()
-                .filter(|control_block| control_block[1..33] == NUMS_H)
-                .is_some()
-            {
-                None
+    match (txin.witness.is_empty(), txin.script_sig.is_empty()) {
+        // Wrapped Segwit
+        (false, false) if script_pubkey.is_p2sh() => txin
+            .script_sig
+            .redeem_script()
+            .filter(|script_pubkey| script_pubkey.is_p2wpkh())
+            // if Non-standard script return None
+            .map(|_| WrappedSegwit),
+        // Native segwit
+        (false, true) => {
+            // P2WPKH
+            if script_pubkey.is_p2wpkh() {
+                Some(P2WPKH)
             } else {
-                Some(P2TR)
+                // P2TR
+                script_pubkey
+                    .is_p2tr()
+                    .then(|| {
+                        txin.witness
+                            .taproot_control_block()
+                            .filter(|control_block| control_block[1..33] == NUMS_H)
+                            // if P2TR has no internal key return None
+                            .map_or(Some(P2TR), |_| None)
+                    })
+                    .flatten()
             }
-        } else {
-            None
         }
-    } else if !txin.script_sig.is_empty() && script_pubkey.is_p2pkh() {
-        Some(P2PKH)
-    } else {
-        None
+        // No witness, legacy P2PKH
+        (true, false) if script_pubkey.is_p2pkh() => Some(P2PKH),
+        // All other cases
+        _ => None,
     }
 }
 
