@@ -51,67 +51,35 @@ impl From<&SpOut> for TxOut {
     }
 }
 
-pub fn extract_pubkey(
-    txin: TxIn,
-    script_pubkey: &ScriptBuf,
-) -> Result<Option<(SpInputs, PublicKey)>, SpReceiveError> {
+pub fn extract_pubkey(txin: TxIn, script_pubkey: &ScriptBuf) -> Option<(SpInputs, PublicKey)> {
     use SpInputs::*;
 
-    tag_txin(&txin, script_pubkey)
-        .map(|x| match x {
-            WrappedSegwit | P2WPKH => {
-                txin.witness
-                    .last()
-                    // NOTE: This is a way to ensure all used keys are compressed, not compressed keys are
-                    // not considered.
-                    .map(bitcoin::PublicKey::from_slice)
-                    .transpose()?
-                    .and_then(|pubkey| {
-                        if pubkey.compressed {
-                            Some((x, pubkey.inner))
-                        } else {
-                            None
-                        }
+    tag_txin(&txin, script_pubkey).and_then(|tag| match tag {
+        WrappedSegwit | P2WPKH => {
+            let maybe_pk = txin.witness.last().expect("already checked is not empty");
+            bitcoin::PublicKey::from_slice(maybe_pk)
+                .ok()
+                .filter(|pubkey| pubkey.compressed)
+                .map(|pk| (tag, pk.inner))
+        }
+        P2TR => XOnlyPublicKey::from_slice(&script_pubkey.as_bytes()[2..34])
+            .ok()
+            .map(|xonly_pk| (tag, xonly_pk.public_key(Parity::Even))),
+        P2PKH => txin
+            .script_sig
+            .into_bytes()
+            .windows(33)
+            .rev()
+            .find_map(|slice| {
+                bitcoin::PublicKey::from_slice(slice)
+                    .ok()
+                    .filter(|pubkey| {
+                        <PubkeyHash as AsRef<[u8; 20]>>::as_ref(&pubkey.pubkey_hash())
+                            == script_pubkey[3..23].as_bytes()
                     })
-                    .ok_or(SpReceiveError::PubKeyExtractionError(
-                        "Public key extraction from TxOut witness failed",
-                    ))
-            }
-            P2TR => {
-                Ok(
-                    // NOTE: Only x only even taproot keys should be considered
-                    (
-                        x,
-                        XOnlyPublicKey::from_slice(&script_pubkey.as_bytes()[2..34])?
-                            .public_key(Parity::Even),
-                    ),
-                )
-            }
-            P2PKH => {
-                txin.script_sig
-                    .into_bytes()
-                    .windows(33)
-                    .rev()
-                    // NOTE: This is a way to ensure all used keys are compressed, not compressed keys are
-                    // not considered.
-                    .find_map(|slice| {
-                        bitcoin::PublicKey::from_slice(slice).map_or(None, |pubkey| {
-                            if pubkey.compressed
-                                && <PubkeyHash as AsRef<[u8; 20]>>::as_ref(&pubkey.pubkey_hash())
-                                    == script_pubkey[3..23].as_bytes()
-                            {
-                                Some((x, pubkey.inner))
-                            } else {
-                                None
-                            }
-                        })
-                    })
-                    .ok_or(SpReceiveError::PubKeyExtractionError(
-                        "Public key extraction from TxOut script signature failed",
-                    ))
-            }
-        })
-        .transpose()
+                    .map(|pk| (tag, pk.inner))
+            }),
+    })
 }
 
 pub fn scan_txouts(
@@ -270,8 +238,7 @@ pub fn compute_tweak_data(
         .zip(prevouts)
         .filter_map(|(txin, prevout)| {
             // NOTE: Public keys which couldn't be extracted will be ignored
-            extract_pubkey(txin, &prevout.script_pubkey)
-                .map_or(None, |x| x.map(|(_input_type, key)| key))
+            extract_pubkey(txin, &prevout.script_pubkey).map(|(_input_type, key)| key)
         })
         .collect::<Vec<PublicKey>>();
 
