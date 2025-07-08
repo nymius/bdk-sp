@@ -266,3 +266,352 @@ pub fn compute_tweak_data(
 
     Ok(A_sum.mul_tweak(&secp, &input_hash)?)
 }
+
+#[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod tests {
+    use super::{extract_pubkey, ScriptBuf, TxIn};
+
+    use bitcoin::{
+        hex::test_hex_unwrap as hex,
+        secp256k1::{self, PublicKey},
+        OutPoint, Sequence, Witness,
+    };
+
+    use std::str::FromStr;
+
+    use crate::SpInputs;
+
+    #[test]
+    fn test_extract_pubkey_wrapped_segwit_ok() {
+        let script_pubkey = ScriptBuf::from_hex("a914809b71783f1b55eeadeb1678baef0c994adc425987")
+            .expect("should succeed");
+        // third input from testnet tx 65eb5594eda20b3a2437c2e2c28ba7633f0492cbb33f62ee31469b913ce8a5ca
+        let txin = TxIn {
+            previous_output: OutPoint{
+                txid: "04d984cdcf728975c173c45c49a242cedee2da5dc200b2f83ca6a98aecf11280"
+                    .parse()
+                    .unwrap(),
+                vout: 1,
+            },
+            script_sig: ScriptBuf::from_hex("1600146a721dcca372f3c17b2c649b2ba61aa0fda98a91")
+                .unwrap(),
+            sequence: Sequence::MAX,
+            witness: Witness::from_slice(&[hex!(
+                "304402204ebf033caf3a1a210623e98b49acb41db2220c531843106d5c50736b144b15aa02201a006be1ebc2ffef0927d4458e3bb5e41e5abc7e44fc5ceb920049b46f87971101"
+            ), hex!("02ae68d299cbb8ab99bf24c9af79a7b13d28ac8cd21f6f7f750300eda41a589a5d")]),
+        };
+
+        let expected_pubkey = PublicKey::from_str(
+            "02ae68d299cbb8ab99bf24c9af79a7b13d28ac8cd21f6f7f750300eda41a589a5d",
+        )
+        .expect("should work");
+        let maybe_pubkey = extract_pubkey(txin, &script_pubkey);
+
+        assert!(maybe_pubkey.is_some());
+
+        let (input_type, parsed_pubkey) = maybe_pubkey.expect("is some");
+
+        assert_eq!(SpInputs::WrappedSegwit, input_type);
+
+        assert_eq!(expected_pubkey, parsed_pubkey);
+    }
+
+    #[test]
+    fn test_extract_pubkey_p2wpkh_ok() {
+        let script_pubkey = ScriptBuf::from_hex("001453d9c40342ee880e766522c3e2b854d37f2b3cbf")
+            .expect("should succeed");
+        // only input from mainnet tx 091d2aaadc409298fd8353a4cd94c319481a0b4623fb00872fe240448e93fcbe
+        let txin = TxIn {
+            previous_output: OutPoint {
+                txid: "a7115c7267dbb4aab62b37818d431b784fe731f4d2f9fa0939a9980d581690ec"
+                    .parse()
+                    .unwrap(),
+                vout: 1,
+            },
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::MAX,
+            witness: Witness::from_slice(&[
+                hex!("3044022025f63cdce46c749ff1953200b4fda615c7bbd6aa1717850c39297ce1087071ca0220675349fe9f9c6cf626f66abfd4ea1381b470a8315d1a8922d2573dc1410c661501"),
+                hex!("03eb01a0190cb4d5da80878b20ff3823cc45b4fe55288393ee5d9f8a7f5eb65bbb"),
+            ]),
+        };
+
+        let expected_pubkey = PublicKey::from_str(
+            "03eb01a0190cb4d5da80878b20ff3823cc45b4fe55288393ee5d9f8a7f5eb65bbb",
+        )
+        .expect("should succeed");
+        let maybe_pubkey = extract_pubkey(txin, &script_pubkey);
+
+        assert!(maybe_pubkey.is_some());
+
+        let (input_type, parsed_pubkey) = maybe_pubkey.expect("is some");
+
+        assert_eq!(SpInputs::P2WPKH, input_type);
+
+        assert_eq!(expected_pubkey, parsed_pubkey);
+    }
+
+    #[test]
+    fn test_extract_pubkey_p2tr_ok() {
+        let script_pubkey = ScriptBuf::from_hex(
+            "51200f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667",
+        )
+        .expect("should succeed");
+        // only input from mainnet tx 091d2aaadc409298fd8353a4cd94c319481a0b4623fb00872fe240448e93fcbe
+        let txin = TxIn {
+            previous_output: OutPoint {
+                txid: "a7115c7267dbb4aab62b37818d431b784fe731f4d2f9fa0939a9980d581690ec"
+                    .parse()
+                    .unwrap(),
+                vout: 0,
+            },
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::MAX,
+            witness: Witness::from_slice(&[hex!(
+                "b693a0797b24bae12ed0516a2f5ba765618dca89b75e498ba5b745b71644362298a45ca39230d10a02ee6290a91cebf9839600f7e35158a447ea182ea0e022ae01"
+            )]),
+        };
+
+        let expected_pubkey = PublicKey::from_str(
+            "020f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667",
+        )
+        .expect("should succeed");
+
+        let maybe_pubkey = extract_pubkey(txin, &script_pubkey);
+
+        assert!(maybe_pubkey.is_some());
+
+        let (input_type, parsed_pubkey) = maybe_pubkey.expect("is some");
+
+        assert_eq!(SpInputs::P2TR, input_type);
+
+        assert_eq!(expected_pubkey, parsed_pubkey);
+    }
+
+    #[test]
+    fn test_extract_pubkey_p2pkh_ok() {
+        let script_pubkey =
+            ScriptBuf::from_hex("76a9140c443537e6e31f06e6edb2d4bb80f8481e2831ac88ac")
+                .expect("should succeed");
+        // only input from mainnet tx 4316fe7be359937317f42ffaf05ab02554297fb83096a0beb985a25f9e338215
+        let txin = TxIn {
+            previous_output: OutPoint {
+                txid: "40e331b67c0fe7750bb3b1943b378bf702dce86124dc12fa5980f975db7ec930"
+                    .parse()
+                    .unwrap(),
+                vout: 0,
+            },
+            script_sig: ScriptBuf::from_hex("473044022076baac422976af25b32479ccb81df8a2d7f4f73cfb2ff98cfe10241feefdb43702204c08a9fc646150a9aceb3ebc26344e1596ddd6b7bc8aa44cb116a3adca173e3701210360a953b3da3f5cc0ec246a99411c19916fab7e72b59e105955b6e3e9d3a44773").expect("should succeed"),
+            sequence: Sequence::MAX,
+            witness: Witness::new(),
+        };
+
+        let expected_pubkey = PublicKey::from_str(
+            "0360a953b3da3f5cc0ec246a99411c19916fab7e72b59e105955b6e3e9d3a44773",
+        )
+        .expect("should succeed");
+        let maybe_pubkey = extract_pubkey(txin, &script_pubkey);
+
+        assert!(maybe_pubkey.is_some());
+
+        let (input_type, parsed_pubkey) = maybe_pubkey.expect("is some");
+
+        assert_eq!(SpInputs::P2PKH, input_type);
+
+        assert_eq!(expected_pubkey, parsed_pubkey);
+    }
+
+    #[test]
+    fn test_extract_pubkey_malleated_p2pkh_ok() {
+        let script_pubkey =
+            ScriptBuf::from_hex("76a9147cdd63cc408564188e8e472640e921c7c90e651d88ac")
+                .expect("should succeed");
+        // only input from mainnet tx 4316fe7be359937317f42ffaf05ab02554297fb83096a0beb985a25f9e338215
+        let txin = TxIn {
+            previous_output: OutPoint {
+                txid: "f4184fc596403b9d638783cf57adfe4c75c605f6356fbc91338530e9831e9e16"
+                    .parse()
+                    .unwrap(),
+                vout: 1,
+            },
+            script_sig: ScriptBuf::from_hex("0075473045022100a8c61b2d470e393279d1ba54f254b7c237de299580b7fa01ffcc940442ecec4502201afba952f4e4661c40acde7acc0341589031ba103a307b886eb867b23b850b972103782eeb913431ca6e9b8c2fd80a5f72ed2024ef72a3c6fb10263c379937323338").expect("should succeed"),
+            sequence: Sequence::MAX,
+            witness: Witness::new(),
+        };
+
+        let expected_pubkey = PublicKey::from_str(
+            "03782eeb913431ca6e9b8c2fd80a5f72ed2024ef72a3c6fb10263c379937323338",
+        )
+        .expect("should succeed");
+
+        let maybe_pubkey = extract_pubkey(txin, &script_pubkey);
+
+        assert!(maybe_pubkey.is_some());
+
+        let (input_type, parsed_pubkey) = maybe_pubkey.expect("is some");
+
+        assert_eq!(SpInputs::P2PKH, input_type);
+
+        assert_eq!(expected_pubkey, parsed_pubkey);
+    }
+
+    #[test]
+    fn test_extract_pubkey_wrapped_segwit_invalid_key() {
+        let script_pubkey = ScriptBuf::from_hex("a914809b71783f1b55eeadeb1678baef0c994adc425987")
+            .expect("should succeed");
+        // crafted using third input in testnet tx 65eb5594eda20b3a2437c2e2c28ba7633f0492cbb33f62ee31469b913ce8a5ca as template
+        let txin = TxIn {
+            previous_output: OutPoint{
+                txid: "04d984cdcf728975c173c45c49a242cedee2da5dc200b2f83ca6a98aecf11280"
+                    .parse()
+                    .unwrap(),
+                vout: 1,
+            },
+            script_sig: ScriptBuf::from_hex("1600146a721dcca372f3c17b2c649b2ba61aa0fda98a91")
+                .unwrap(),
+            sequence: Sequence::MAX,
+            witness: Witness::from_slice(&[hex!(
+                "304402204ebf033caf3a1a210623e98b49acb41db2220c531843106d5c50736b144b15aa02201a006be1ebc2ffef0927d4458e3bb5e41e5abc7e44fc5ceb920049b46f87971101"
+            ), secp256k1::constants::ZERO.to_vec()]),
+        };
+
+        assert!(extract_pubkey(txin, &script_pubkey).is_none());
+    }
+
+    #[test]
+    fn test_extract_pubkey_p2wpkh_invalid_key() {
+        let script_pubkey = ScriptBuf::from_hex("001453d9c40342ee880e766522c3e2b854d37f2b3cbf")
+            .expect("should succeed");
+        // crafted using the only input from mainnet tx 091d2aaadc409298fd8353a4cd94c319481a0b4623fb00872fe240448e93fcbe as template
+        let txin = TxIn {
+            previous_output: OutPoint {
+                txid: "a7115c7267dbb4aab62b37818d431b784fe731f4d2f9fa0939a9980d581690ec"
+                    .parse()
+                    .unwrap(),
+                vout: 1,
+            },
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::MAX,
+            witness: Witness::from_slice(&[
+                hex!("3044022025f63cdce46c749ff1953200b4fda615c7bbd6aa1717850c39297ce1087071ca0220675349fe9f9c6cf626f66abfd4ea1381b470a8315d1a8922d2573dc1410c661501"),
+                secp256k1::constants::ZERO.to_vec()
+            ]),
+        };
+
+        assert!(extract_pubkey(txin, &script_pubkey).is_none());
+    }
+
+    #[test]
+    fn test_extract_pubkey_p2tr_invalid_key() {
+        let script_pubkey = ScriptBuf::from_hex(
+            "51200000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .expect("should succeed");
+        // crafted using only input from mainnet tx 091d2aaadc409298fd8353a4cd94c319481a0b4623fb00872fe240448e93fcbe as template
+        let txin = TxIn {
+            previous_output: OutPoint {
+                txid: "a7115c7267dbb4aab62b37818d431b784fe731f4d2f9fa0939a9980d581690ec"
+                    .parse()
+                    .unwrap(),
+                vout: 0,
+            },
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::MAX,
+            witness: Witness::from_slice(&[hex!(
+                "b693a0797b24bae12ed0516a2f5ba765618dca89b75e498ba5b745b71644362298a45ca39230d10a02ee6290a91cebf9839600f7e35158a447ea182ea0e022ae01"
+            )]),
+        };
+
+        assert!(extract_pubkey(txin, &script_pubkey).is_none());
+    }
+
+    #[test]
+    fn test_extract_pubkey_p2pkh_invalid_key() {
+        let script_pubkey =
+            ScriptBuf::from_hex("76a9140c443537e6e31f06e6edb2d4bb80f8481e2831ac88ac")
+                .expect("should succeed");
+        // only input from mainnet tx 4316fe7be359937317f42ffaf05ab02554297fb83096a0beb985a25f9e338215
+        let txin = TxIn {
+            previous_output: OutPoint {
+                txid: "40e331b67c0fe7750bb3b1943b378bf702dce86124dc12fa5980f975db7ec930"
+                    .parse()
+                    .unwrap(),
+                vout: 0,
+            },
+            script_sig: ScriptBuf::from_hex("473044022076baac422976af25b32479ccb81df8a2d7f4f73cfb2ff98cfe10241feefdb43702204c08a9fc646150a9aceb3ebc26344e1596ddd6b7bc8aa44cb116a3adca173e370121000000000000000000000000000000000000000000000000000000000000000000").expect("should succeed"),
+            sequence: Sequence::MAX,
+            witness: Witness::new(),
+        };
+
+        assert!(extract_pubkey(txin, &script_pubkey).is_none());
+    }
+
+    #[test]
+    fn test_extract_pubkey_wrapped_segwit_uncompressed() {
+        let script_pubkey = ScriptBuf::from_hex("a914809b71783f1b55eeadeb1678baef0c994adc425987")
+            .expect("should succeed");
+        // crafted using third input from testnet tx 65eb5594eda20b3a2437c2e2c28ba7633f0492cbb33f62ee31469b913ce8a5ca as template
+        let txin = TxIn {
+            previous_output: OutPoint{
+                txid: "04d984cdcf728975c173c45c49a242cedee2da5dc200b2f83ca6a98aecf11280"
+                    .parse()
+                    .unwrap(),
+                vout: 1,
+            },
+            script_sig: ScriptBuf::from_hex("1600146a721dcca372f3c17b2c649b2ba61aa0fda98a91")
+                .unwrap(),
+            sequence: Sequence::MAX,
+            witness: Witness::from_slice(&[hex!(
+                "304402204ebf033caf3a1a210623e98b49acb41db2220c531843106d5c50736b144b15aa02201a006be1ebc2ffef0927d4458e3bb5e41e5abc7e44fc5ceb920049b46f87971101"
+            // notice uncompressed public key here, at the end of the witness
+            ), hex!("04ae68d299cbb8ab99bf24c9af79a7b13d28ac8cd21f6f7f750300eda41a589a5d6a7210f279e3be22089aef2e29cf359a7eb0067d8caebae4298c5bec56ca41c2")]),
+        };
+
+        assert!(extract_pubkey(txin, &script_pubkey).is_none());
+    }
+
+    #[test]
+    fn test_extract_pubkey_p2wpkh_uncompressed() {
+        let script_pubkey = ScriptBuf::from_hex("001453d9c40342ee880e766522c3e2b854d37f2b3cbf")
+            .expect("should succeed");
+        // crafted using the only input from mainnet tx 091d2aaadc409298fd8353a4cd94c319481a0b4623fb00872fe240448e93fcbe as template
+        let txin = TxIn {
+            previous_output: OutPoint {
+                txid: "a7115c7267dbb4aab62b37818d431b784fe731f4d2f9fa0939a9980d581690ec"
+                    .parse()
+                    .unwrap(),
+                vout: 1,
+            },
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::MAX,
+            witness: Witness::from_slice(&[
+                hex!("3044022025f63cdce46c749ff1953200b4fda615c7bbd6aa1717850c39297ce1087071ca0220675349fe9f9c6cf626f66abfd4ea1381b470a8315d1a8922d2573dc1410c661501"),
+                hex!("04eb01a0190cb4d5da80878b20ff3823cc45b4fe55288393ee5d9f8a7f5eb65bbb8ac7e2a9044b74ce6284ebb08a92ebe489c27b43e542355e783b661b62ed76fd"),
+            ]),
+        };
+
+        assert!(extract_pubkey(txin, &script_pubkey).is_none());
+    }
+    #[test]
+    fn test_extract_pubkey_malleated_p2pkh_wrong_pubkey_hash() {
+        // Use a not matching script pubkey to make the pubkey hash differ
+        let script_pubkey =
+            ScriptBuf::from_hex("76a914b675771222403e064d9fb4d676fcfef47585b07f88ac")
+                .expect("should succeed");
+        // only input from mainnet tx 4316fe7be359937317f42ffaf05ab02554297fb83096a0beb985a25f9e338215
+        let txin = TxIn {
+            previous_output: OutPoint {
+                txid: "f4184fc596403b9d638783cf57adfe4c75c605f6356fbc91338530e9831e9e16"
+                    .parse()
+                    .unwrap(),
+                vout: 1,
+            },
+            script_sig: ScriptBuf::from_hex("0075473045022100a8c61b2d470e393279d1ba54f254b7c237de299580b7fa01ffcc940442ecec4502201afba952f4e4661c40acde7acc0341589031ba103a307b886eb867b23b850b972103782eeb913431ca6e9b8c2fd80a5f72ed2024ef72a3c6fb10263c379937323338").expect("should succeed"),
+            sequence: Sequence::MAX,
+            witness: Witness::new(),
+        };
+
+        assert!(extract_pubkey(txin, &script_pubkey).is_none());
+    }
+}
