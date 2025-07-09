@@ -94,6 +94,9 @@ pub fn get_smallest_lexicographic_outpoint(outpoints: &[OutPoint]) -> [u8; 36] {
     result
 }
 
+// Do not report coverage for this function as it is a wrapper around external lib function
+// shared_secret_point
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub fn compute_shared_secret(sk: &SecretKey, pk: &PublicKey) -> PublicKey {
     let mut ss_bytes = [0u8; 65];
     ss_bytes[0] = 0x04;

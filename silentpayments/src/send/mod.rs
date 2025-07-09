@@ -115,3 +115,167 @@ pub fn create_silentpayment_scriptpubkeys(
 
     Ok(payments)
 }
+
+#[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod tests {
+    use super::*;
+    use bitcoin::secp256k1::{PublicKey, SecretKey};
+    use std::str::FromStr;
+
+    const SCAN_PK_1: &str = "03f95241dfb00d1d42e2f48fb72e31a06b9fd166c1d6bd12648b41977dd51b9a0b";
+    const SPEND_PK_1: &str = "032e58afe51f9ed8ad3cc7897f634d881fdbe49a81564629ded8156bebd2ffd1af";
+    const SCAN_PK_2: &str = "03c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5";
+    const SPEND_PK_2: &str = "02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9";
+    const PARTIAL_SECRET_1: &str =
+        "d5c68eccb3ddd0fab0bf504209b8b6ce3f51832beb136a5f91ade54bc059f9b8";
+    const PARTIAL_SECRET_2: &str =
+        "e9b700555d60a8c4a874128c68b07ed7234248910db80d073d298e058df1786f";
+
+    fn setup_test_data() -> (SecretKey, Vec<SilentPaymentCode>) {
+        let partial_secret = SecretKey::from_str(PARTIAL_SECRET_1).expect("reading from constant");
+
+        // Create some test SilentPaymentCodes
+        let scan_1 = PublicKey::from_str(SCAN_PK_1).expect("reading from constant");
+        let spend_1 = PublicKey::from_str(SPEND_PK_1).expect("reading from constant");
+
+        let scan_2 = PublicKey::from_str(SCAN_PK_2).expect("reading from constant");
+        let spend_2 = PublicKey::from_str(SPEND_PK_2).expect("reading from constant");
+
+        let sp_code_1 = SilentPaymentCode::new_v0(scan_1, spend_1, bitcoin::Network::Bitcoin);
+
+        let sp_code_2 = SilentPaymentCode::new_v0(scan_2, spend_2, bitcoin::Network::Bitcoin);
+
+        let sp_code_3 = sp_code_1.add_label(Scalar::MAX).expect("should succeed");
+
+        (partial_secret, vec![sp_code_1, sp_code_2, sp_code_3])
+    }
+
+    #[test]
+    fn test_create_silentpayment_spk_base() {
+        let (partial_secret, sp_codes) = setup_test_data();
+
+        let result =
+            create_silentpayment_scriptpubkeys(partial_secret, &sp_codes).expect("should succeed");
+
+        assert_eq!(result.len(), 3);
+
+        for sp_code in &sp_codes {
+            assert!(result.contains_key(sp_code));
+            assert_eq!(result[sp_code].len(), 1);
+        }
+    }
+
+    #[test]
+    fn test_create_silentpayment_spk_with_empty_outputs() {
+        let (partial_secret, _) = setup_test_data();
+        let empty_outputs: Vec<SilentPaymentCode> = vec![];
+
+        let result = create_silentpayment_scriptpubkeys(partial_secret, &empty_outputs)
+            .expect("should succeed with empty outputs");
+
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_create_silentpayment_spk_cache_behavior() {
+        let (partial_secret, sp_codes) = setup_test_data();
+
+        assert_eq!(sp_codes[0].scan, sp_codes[2].scan);
+
+        let result =
+            create_silentpayment_scriptpubkeys(partial_secret, &sp_codes).expect("should succeed");
+
+        // Get the pubkeys for codes with the same scan key
+        let pubkeys_1 = &result[&sp_codes[0]];
+        let pubkeys_3 = &result[&sp_codes[2]];
+
+        // They should be different despite having the same scan key
+        // because the k value is incremented and the spend keys differ
+        assert_ne!(pubkeys_1[0], pubkeys_3[0]);
+    }
+
+    #[test]
+    fn test_create_silentpayment_spk_multiple_calls_deterministic() {
+        let (partial_secret, sp_codes) = setup_test_data();
+
+        // Generate sp_codes twice with the same inputs
+        let result_1 =
+            create_silentpayment_scriptpubkeys(partial_secret, &sp_codes).expect("should succeed");
+        let result_2 =
+            create_silentpayment_scriptpubkeys(partial_secret, &sp_codes).expect("should succeed");
+
+        // Results should be identical
+        assert_eq!(result_1.len(), result_2.len());
+
+        for sp_code in &sp_codes {
+            assert_eq!(result_1[sp_code], result_2[sp_code]);
+        }
+    }
+
+    #[test]
+    fn test_create_silentpayment_spk_duplicate_payment_codes() {
+        let (partial_secret, mut sp_codes) = setup_test_data();
+
+        // Add a duplicate of the first code
+        sp_codes.push(sp_codes[0].clone());
+
+        let result = create_silentpayment_scriptpubkeys(partial_secret, &sp_codes)
+            .expect("should succeed with duplicates");
+
+        // Should still have only 3 unique entries
+        assert_eq!(result.len(), 3);
+
+        // First code should have 2 pubkeys now
+        assert_eq!(result[&sp_codes[0]].len(), 2);
+
+        // And the pubkeys should be different due to k incrementing
+        let pubkeys = &result[&sp_codes[0]];
+        assert_ne!(pubkeys[0], pubkeys[1]);
+    }
+
+    #[test]
+    fn test_create_silentpayment_spk_large_number_of_sp_codes() {
+        let (partial_secret, sp_codes) = setup_test_data();
+
+        let base_code = &sp_codes[0];
+
+        // Create many codes with the same scan key but different spend keys
+        let mut sp_codes = Vec::new();
+        for _ in 0..100 {
+            let label = Scalar::random();
+
+            let code = base_code.add_label(label).expect("should succeed");
+
+            sp_codes.push(code);
+        }
+
+        let result = create_silentpayment_scriptpubkeys(partial_secret, &sp_codes)
+            .expect("should succeed with many sp_codes");
+
+        // Should have generated the correct number of sp_codes
+        assert_eq!(result.len(), 100);
+
+        // All generated pubkeys should be unique
+        let all_pubkeys: Vec<_> = result.values().flat_map(|v| v.iter().cloned()).collect();
+        let unique_pubkeys: std::collections::HashSet<_> = all_pubkeys.iter().cloned().collect();
+        assert_eq!(all_pubkeys.len(), unique_pubkeys.len());
+    }
+
+    #[test]
+    fn test_create_silentpayment_spk_different_partial_secrets() {
+        let (partial_secret_1, sp_codes) = setup_test_data();
+        let partial_secret_2 =
+            SecretKey::from_str(PARTIAL_SECRET_2).expect("creating from constant");
+
+        let result_1 = create_silentpayment_scriptpubkeys(partial_secret_1, &sp_codes)
+            .expect("should succeed");
+        let result_2 = create_silentpayment_scriptpubkeys(partial_secret_2, &sp_codes)
+            .expect("should succeed");
+
+        // Results should be different with different partial secrets
+        for sp_code in &sp_codes {
+            assert_ne!(result_1[sp_code], result_2[sp_code]);
+        }
+    }
+}
