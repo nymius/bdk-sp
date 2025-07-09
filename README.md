@@ -1,10 +1,17 @@
 # `bdk-sp`
 
+<div align="center">
+  <p>
+    <strong>An experimental crate to research the implementation of silent payment tools in BDK.</strong>
+  </p>
+
+  <p>
+    <a href="https://coveralls.io/github/bitcoindevkit/bdk-sp?branch=master"><img src="https://coveralls.io/repos/github/bitcoindevkit/bdk-sp/badge.svg?branch=master"/></a>
+  </p>
+</div>
+
 > [!WARNING]
 > Work in progress. Not recommended for use with bitcoin mainnet.
-
-This is an experimental crate to research the implementation of silent payment
-tools in BDK.
 
 ![execution flow enabled by this crate](../media/sp_flow.gif?raw=true)
 
