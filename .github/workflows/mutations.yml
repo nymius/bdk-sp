@@ -1,0 +1,42 @@
+name: Test mutants
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  incremental-mutants:
+    name: Incremental mutants test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Relative diff
+        run: |
+          git branch -av
+          git diff origin/${{ github.base_ref }}.. | tee git.diff
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+      - name: Install Rust toolchain
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-mutants
+      - name: Mutants
+        run: |
+          cargo mutants --no-shuffle -vV --exclude "example-crates/**" --in-diff git.diff -- --all-targets
+      - name: Archive mutants.out
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutants-incremental.out
+          path: mutants.out
