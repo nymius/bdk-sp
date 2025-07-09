@@ -35,7 +35,7 @@ pub fn tag_txin(txin: &TxIn, script_pubkey: &ScriptBuf) -> Option<SpInputs> {
             .script_sig
             .redeem_script()
             .filter(|script_pubkey| script_pubkey.is_p2wpkh())
-            // if Non-standard script return None
+            // if not P2SH-P2WPKH return None
             .map(|_| WrappedSegwit),
         // Native segwit
         (false, true) => {
