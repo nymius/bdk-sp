@@ -4,6 +4,8 @@ pub enum SpSendError {
     Secp256k1Error(bitcoin::secp256k1::Error),
     /// BIP 32 error
     Bip32Error(bitcoin::bip32::Error),
+    /// No available inputs for shared secret derivation
+    MissingInputsForSharedSecretDerivation,
     /// PSBT missing witness
     MissingWitness,
     /// PSBT missing prevout
@@ -38,6 +40,7 @@ impl std::fmt::Display for SpSendError {
             Self::Bip32Error(e) => write!(f, "Silent payment sending error: {e}"),
             Self::Secp256k1Error(e) => write!(f, "Silent payment sending error: {e}"),
             Self::IndexError(e) => write!(f, "From PSBT: {e}"),
+            Self::MissingInputsForSharedSecretDerivation => write!(f, "No available inputs for shared secret derivation"),
             Self::MissingWitness => write!(
                 f,
                 "From PSBT, missing witness to get public key to derive silent payment output"
