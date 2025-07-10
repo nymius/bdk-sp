@@ -22,8 +22,7 @@ fn process_sending_given(
     let spks_with_keys = vin
         .iter()
         .filter_map(|SendingVinData { txin, prevout, sk }| {
-            extract_pubkey(txin.clone(), prevout)
-                .map_or(None, |pubkey| pubkey.and(Some((prevout.clone(), *sk))))
+            extract_pubkey(txin.clone(), prevout).map(|_| (prevout.clone(), *sk))
         })
         .collect::<Vec<(ScriptBuf, SecretKey)>>();
     if !spks_with_keys.is_empty() {

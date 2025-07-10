@@ -51,7 +51,7 @@ where
             return Err(SpSendError::MissingWitness);
         }
 
-        if let Ok(Some((input_type, _pk))) = extract_pubkey(full_txin, &prevout) {
+        if let Some((input_type, _pk)) = extract_pubkey(full_txin, &prevout) {
             if let SpInputs::P2TR = input_type {
                 for (&xonly, (_leaf_hashes, key_source)) in psbt_input.tap_key_origins.iter() {
                     let mut internal_privkey = if let Ok(Some(privkey)) =
