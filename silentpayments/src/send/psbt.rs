@@ -1,15 +1,14 @@
 use crate::{
     encoding::SilentPaymentCode,
-    get_smallest_lexicographic_outpoint,
     receive::extract_pubkey,
     send::{create_silentpayment_partial_secret, create_silentpayment_scriptpubkeys},
-    SpInputs,
+    LexMin, SpInputs,
 };
 use bitcoin::{
     key::{Parity, Secp256k1, TweakedPublicKey, Verification},
     psbt::{GetKey, KeyRequest},
     secp256k1::{SecretKey, Signing},
-    OutPoint, Psbt, ScriptBuf, TapTweakHash, TxOut,
+    Psbt, ScriptBuf, TapTweakHash, TxOut,
 };
 
 use super::error::SpSendError;
@@ -27,8 +26,8 @@ where
     let tx = psbt.unsigned_tx.clone();
 
     let mut spks_with_keys: Vec<(ScriptBuf, SecretKey)> = vec![];
-    let mut outpoints: Vec<OutPoint> = vec![];
-    for (psbt_input, txin) in psbt.inputs.iter().zip(tx.input.clone()) {
+    let mut lex_min = LexMin::default();
+    for (txin, psbt_input) in tx.input.iter().zip(psbt.inputs.iter()) {
         let prevout = {
             match (&psbt_input.witness_utxo, &psbt_input.non_witness_utxo) {
                 (Some(txout), _) => txout.script_pubkey.clone(),
@@ -42,7 +41,7 @@ where
             }
         };
 
-        outpoints.push(txin.previous_output);
+        lex_min.update(&txin.previous_output);
 
         let mut full_txin = txin.clone();
         if let Some(ref witness) = psbt_input.final_script_witness {
@@ -103,9 +102,8 @@ where
     }
 
     if !spks_with_keys.is_empty() {
-        let smallest_outpoint = get_smallest_lexicographic_outpoint(&outpoints);
         let partial_secret =
-            create_silentpayment_partial_secret(&smallest_outpoint, &spks_with_keys)?;
+            create_silentpayment_partial_secret(&lex_min.bytes()?, &spks_with_keys)?;
         let silent_payments = create_silentpayment_scriptpubkeys(partial_secret, recipients)?;
         for (sp_code, x_only_pks) in silent_payments.iter() {
             let placeholder_spk = sp_code.get_placeholder_p2tr_spk();

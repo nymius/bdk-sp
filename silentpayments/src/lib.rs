@@ -63,34 +63,62 @@ pub fn tag_txin(txin: &TxIn, script_pubkey: &ScriptBuf) -> Option<SpInputs> {
     }
 }
 
-pub fn get_smallest_lexicographic_outpoint(outpoints: &[OutPoint]) -> [u8; 36] {
-    // Find the outpoint with the smallest lexicographic order
-    let smallest = outpoints
-        .iter()
-        .min_by(|a, b| {
-            // Compare txids first
-            let a_txid = a.txid.to_raw_hash();
-            let b_txid = b.txid.to_raw_hash();
+#[derive(Debug)]
+pub enum LexMinError {
+    NoMinOutpoint,
+}
 
-            // If txids are different, compare them
-            match a_txid.as_byte_array().cmp(b_txid.as_byte_array()) {
-                std::cmp::Ordering::Equal => {
-                    // If txids are equal, compare vouts directly
-                    let a_vout_bytes = a.vout.to_le_bytes();
-                    let b_vout_bytes = b.vout.to_le_bytes();
-                    a_vout_bytes.cmp(&b_vout_bytes)
+impl std::fmt::Display for LexMinError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoMinOutpoint => write!(f, "No minimal outpoint, update at least once"),
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct LexMin<'a> {
+    current_min: Option<&'a OutPoint>,
+}
+
+impl<'a> LexMin<'a> {
+    pub fn update(&mut self, outpoint: &'a OutPoint) -> &'a OutPoint {
+        if let Some(min) = self.current_min {
+            let new_min = std::cmp::min_by(outpoint, min, |a, b| {
+                // Compare txids first
+                let a_txid = a.txid.to_raw_hash();
+                let b_txid = b.txid.to_raw_hash();
+
+                // If txids are different, compare them
+                match a_txid.as_byte_array().cmp(b_txid.as_byte_array()) {
+                    std::cmp::Ordering::Equal => {
+                        // If txids are equal, compare vouts directly
+                        let a_vout_bytes = a.vout.to_le_bytes();
+                        let b_vout_bytes = b.vout.to_le_bytes();
+                        a_vout_bytes.cmp(&b_vout_bytes)
+                    }
+                    other => other,
                 }
-                other => other,
-            }
-        })
-        .expect("cannot create silent payment script pubkey without outpoints");
+            });
+            self.current_min = Some(new_min);
+            new_min
+        } else {
+            self.current_min = Some(outpoint);
+            outpoint
+        }
+    }
 
-    // Only allocate the result array once we have the smallest outpoint
-    let mut result = [0u8; 36];
-    result[..32].copy_from_slice(smallest.txid.to_raw_hash().as_byte_array());
-    result[32..36].copy_from_slice(&smallest.vout.to_le_bytes());
+    pub fn bytes(&self) -> Result<[u8; 36], LexMinError> {
+        if let Some(min) = self.current_min {
+            let mut result = [0u8; 36];
+            result[..32].copy_from_slice(min.txid.to_raw_hash().as_byte_array());
+            result[32..36].copy_from_slice(&min.vout.to_le_bytes());
 
-    result
+            Ok(result)
+        } else {
+            Err(LexMinError::NoMinOutpoint)
+        }
+    }
 }
 
 // Do not report coverage for this function as it is a wrapper around external lib function
@@ -110,9 +138,7 @@ pub fn compute_shared_secret(sk: &SecretKey, pk: &PublicKey) -> PublicKey {
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
-    use super::{
-        get_smallest_lexicographic_outpoint, tag_txin, Hash, ScriptBuf, SpInputs, TxIn, NUMS_H,
-    };
+    use super::{tag_txin, Hash, LexMin, ScriptBuf, SpInputs, TxIn, NUMS_H};
     use bitcoin::{
         hex::test_hex_unwrap as hex, taproot::TAPROOT_ANNEX_PREFIX, OutPoint, Sequence, Txid,
         Witness,
@@ -344,8 +370,9 @@ mod tests {
     }
 
     #[test]
-    fn test_get_smallest_outpoint_different_txids_and_vouts() {
-        let outpoints = vec![
+    fn test_lex_min_different_txids_and_vouts() {
+        let mut lex_min = LexMin::default();
+        let outpoints = [
             OutPoint {
                 txid: Txid::from_slice(&[3u8; 32]).unwrap(),
                 vout: 2,
@@ -360,7 +387,11 @@ mod tests {
             },
         ];
 
-        let result = get_smallest_lexicographic_outpoint(&outpoints);
+        for outpoint in outpoints.iter() {
+            lex_min.update(outpoint);
+        }
+
+        let result = lex_min.bytes().expect("should succeed");
 
         let mut expected_bytes = [2u8; 36];
         expected_bytes[32..36].copy_from_slice(&1u32.to_le_bytes());
@@ -369,23 +400,27 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "cannot create silent payment script pubkey without outpoints")]
-    fn test_get_smallest_outpoint_empty() {
-        let outpoints: Vec<OutPoint> = vec![];
-        get_smallest_lexicographic_outpoint(&outpoints);
+    fn test_lex_min_no_update() {
+        let e = LexMin::default().bytes().expect_err("should fail");
+        assert_eq!("No minimal outpoint, update at least once", e.to_string());
     }
 
     // Additional test: same txid, different vouts
     #[test]
-    fn test_get_smallest_outpoint_identical_txid_different_vouts() {
+    fn test_lex_min_identical_txid_different_vouts() {
+        let mut lex_min = LexMin::default();
         let txid = Txid::from_slice(&[0u8; 32]).unwrap();
-        let outpoints = vec![
+        let outpoints = [
             OutPoint { txid, vout: 10 },
             OutPoint { txid, vout: 2 },
             OutPoint { txid, vout: 5 },
         ];
 
-        let result = get_smallest_lexicographic_outpoint(&outpoints);
+        for outpoint in outpoints.iter() {
+            lex_min.update(outpoint);
+        }
+
+        let result = lex_min.bytes().expect("should succeed");
 
         let mut expected_bytes = [0u8; 36];
         expected_bytes[32..36].copy_from_slice(&2u32.to_le_bytes());
@@ -393,8 +428,9 @@ mod tests {
     }
 
     #[test]
-    fn test_get_smallest_outpoint_same_vout_different_txid() {
-        let outpoints = vec![
+    fn test_lex_min_same_vout_different_txid() {
+        let mut lex_min = LexMin::default();
+        let outpoints = [
             OutPoint {
                 txid: Txid::from_slice(&[2u8; 32]).unwrap(),
                 vout: 7,
@@ -409,7 +445,11 @@ mod tests {
             },
         ];
 
-        let result = get_smallest_lexicographic_outpoint(&outpoints);
+        for outpoint in outpoints.iter() {
+            lex_min.update(outpoint);
+        }
+
+        let result = lex_min.bytes().expect("should succeed");
 
         let mut expected_bytes = [1u8; 36];
         expected_bytes[32..36].copy_from_slice(&7u32.to_le_bytes());
@@ -417,8 +457,9 @@ mod tests {
     }
 
     #[test]
-    fn test_get_smallest_outpoint_edge_case_max_vout() {
-        let outpoints = vec![
+    fn test_lex_min_edge_case_max_vout() {
+        let mut lex_min = LexMin::default();
+        let outpoints = [
             OutPoint {
                 txid: Txid::from_slice(&[1u8; 32]).unwrap(),
                 vout: u32::MAX,
@@ -429,7 +470,11 @@ mod tests {
             },
         ];
 
-        let result = get_smallest_lexicographic_outpoint(&outpoints);
+        for outpoint in outpoints.iter() {
+            lex_min.update(outpoint);
+        }
+
+        let result = lex_min.bytes().expect("should succeed");
 
         let mut expected_bytes = [1u8; 36];
         expected_bytes[..32].copy_from_slice(&[1u8; 32]);
@@ -438,8 +483,9 @@ mod tests {
     }
 
     #[test]
-    fn test_get_smallest_outpoint_txid_takes_precedence() {
-        let outpoints = vec![
+    fn test_lex_min_txid_takes_precedence() {
+        let mut lex_min = LexMin::default();
+        let outpoints = [
             OutPoint {
                 txid: Txid::from_slice(&[8u8; 32]).unwrap(),
                 vout: 0,
@@ -450,7 +496,11 @@ mod tests {
             },
         ];
 
-        let result = get_smallest_lexicographic_outpoint(&outpoints);
+        for outpoint in outpoints.iter() {
+            lex_min.update(outpoint);
+        }
+
+        let result = lex_min.bytes().expect("should succeed");
 
         let mut expected_bytes = [5u8; 36];
         expected_bytes[32..36].copy_from_slice(&100u32.to_le_bytes());
@@ -459,6 +509,7 @@ mod tests {
 
     #[test]
     fn test_get_smallest_outpoint_txid_endianness_matters() {
+        let mut lex_min = LexMin::default();
         // big endian: 0x[00][00][00][01]
         // big endian: 0x[a1][b1][c1][d1]
         let mut txid_bytes_be = [0u8; 32];
@@ -469,7 +520,7 @@ mod tests {
         let mut txid_bytes_le = [0u8; 32];
         txid_bytes_le[31] = 1;
 
-        let outpoints = vec![
+        let outpoints = [
             OutPoint {
                 txid: Txid::from_slice(&txid_bytes_be).unwrap(),
                 vout: 1,
@@ -480,9 +531,13 @@ mod tests {
             },
         ];
 
+        for outpoint in outpoints.iter() {
+            lex_min.update(outpoint);
+        }
+
         // if Txid is big endian then: [a1] < [a2] => expected_bytes = txid_bytes_be
         // if Txid is little endian then: [d2] < [d1] => expected_bytes = txid_bytes_le
-        let result = get_smallest_lexicographic_outpoint(&outpoints);
+        let result = lex_min.bytes().expect("should succeed");
 
         let mut expected_bytes = [0u8; 36];
         expected_bytes[31] = 1;

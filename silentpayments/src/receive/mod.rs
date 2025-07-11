@@ -4,9 +4,8 @@ pub mod scan;
 pub use self::error::SpReceiveError;
 
 use crate::{
-    get_smallest_lexicographic_outpoint,
     hashes::{InputsHash, SharedSecretHash},
-    tag_txin, SpInputs,
+    tag_txin, LexMin, SpInputs,
 };
 
 use std::collections::BTreeMap;
@@ -231,16 +230,15 @@ pub fn compute_tweak_data(
 ) -> Result<PublicKey, SpReceiveError> {
     let secp = Secp256k1::verification_only();
 
-    let input_pubkeys = tx
-        .input
-        .clone()
-        .into_iter()
-        .zip(prevouts)
-        .filter_map(|(txin, prevout)| {
-            // NOTE: Public keys which couldn't be extracted will be ignored
-            extract_pubkey(txin, &prevout.script_pubkey).map(|(_input_type, key)| key)
-        })
-        .collect::<Vec<PublicKey>>();
+    let mut input_pubkeys = <Vec<PublicKey>>::new();
+    let mut lex_min = LexMin::default();
+    for (txin, prevout) in tx.input.iter().zip(prevouts) {
+        lex_min.update(&txin.previous_output);
+        // NOTE: Public keys which couldn't be extracted will be ignored
+        if let Some((_, key)) = extract_pubkey(txin.clone(), &prevout.script_pubkey) {
+            input_pubkeys.push(key)
+        }
+    }
 
     let input_pubkey_refs: Vec<&PublicKey> = input_pubkeys.iter().collect();
 
@@ -248,16 +246,10 @@ pub fn compute_tweak_data(
     // NOTE: cannot ignore malicious crafting of transaction with input public keys that cancel
     // themselves
     let A_sum = PublicKey::combine_keys(&input_pubkey_refs)?;
-    let outpoints = tx
-        .input
-        .iter()
-        .map(|txin| txin.previous_output)
-        .collect::<Vec<OutPoint>>();
-    let smallest_outpoint = get_smallest_lexicographic_outpoint(&outpoints);
 
     let input_hash = {
         let mut eng = InputsHash::engine();
-        eng.input(&smallest_outpoint);
+        eng.input(&lex_min.bytes()?);
         eng.input(&A_sum.serialize());
         let hash = InputsHash::from_engine(eng);
         // NOTE: Why big endian bytes??? Doesn't matter. Look at: https://github.com/rust-bitcoin/rust-bitcoin/issues/1896
