@@ -16,6 +16,8 @@ pub enum SpSendError {
     IndexError(bitcoin::blockdata::transaction::OutputsIndexError),
     /// PSBT missing silent payment placeholder script
     MissingPlaceholderScript,
+    /// Error while requesting keys
+    KeyError,
 }
 
 impl From<crate::LexMinError> for SpSendError {
@@ -49,6 +51,7 @@ impl std::fmt::Display for SpSendError {
             Self::Secp256k1Error(e) => write!(f, "Silent payment sending error: {e}"),
             Self::IndexError(e) => write!(f, "From PSBT: {e}"),
             Self::NoOutpoints(e) => write!(f,  "Silent payment sending error: {e}"),
+            Self::KeyError => write!(f, "Silent payment sending error: error while requesting private keys from key provider"),
             Self::MissingInputsForSharedSecretDerivation => write!(f, "No available inputs for shared secret derivation"),
             Self::MissingWitness => write!(
                 f,
