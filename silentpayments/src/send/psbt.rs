@@ -4,6 +4,7 @@ use crate::{
     send::{create_silentpayment_partial_secret, create_silentpayment_scriptpubkeys},
     LexMin, SpInputs,
 };
+
 use bitcoin::{
     key::{Parity, Secp256k1, TweakedPublicKey, Verification},
     psbt::{GetKey, KeyRequest},
@@ -12,6 +13,31 @@ use bitcoin::{
 };
 
 use super::error::SpSendError;
+
+/// A script pubkey paired with its corresponding secret key for silent payment derivation.
+type SpkWithSecret = (ScriptBuf, SecretKey);
+
+/// Contains the data required to create a partial secret for silent payment derivation.
+///
+/// This structure holds the collected script pubkeys with their associated secret keys and the
+/// lexicographically smallest outpoint bytes needed for the silent payment protocol.
+#[allow(unused)]
+#[derive(Debug)]
+struct DataForPartialSecret {
+    /// Vector of script pubkeys paired with their corresponding secret keys
+    scripts_with_secrets: Vec<SpkWithSecret>,
+    /// The lexicographically smallest outpoint as 36 bytes (32 bytes txid + 4 bytes vout)
+    lex_min_outpoint: [u8; 36],
+}
+
+impl Default for DataForPartialSecret {
+    fn default() -> Self {
+        Self {
+            scripts_with_secrets: Vec::default(),
+            lex_min_outpoint: [0u8; 36],
+        }
+    }
+}
 
 pub fn derive_sp<C, K>(
     psbt: &mut Psbt,
