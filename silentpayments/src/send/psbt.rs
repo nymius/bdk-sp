@@ -240,6 +240,49 @@ where
         .transpose()
 }
 
+/// Retrieves the secret key for a non-taproot input from [`Psbt`] data.
+///
+/// This function attempts to derive the secret key for non-taproot inputs by trying both BIP32
+/// derivation and public key lookup.
+///
+/// # Arguments
+///
+/// * `psbt_input` - The [`Psbt`] input containing BIP32 derivation data
+/// * `k` - A key provider implementing the [`GetKey`] trait
+/// * `secp` - A [`Secp256k1`] context for cryptographic operations
+///
+/// # Returns
+///
+/// Returns `Some(SecretKey)` if a valid non-taproot secret key is found, `None` if no
+/// key can be derived, or a [`GetKey`] error if all key retrieval fail.
+#[allow(unused)]
+fn get_non_taproot_secret<C, K, E>(
+    psbt_input: &psbt::Input,
+    k: &K,
+    secp: &Secp256k1<C>,
+) -> Result<Option<SecretKey>, E>
+where
+    C: Signing + Verification,
+    K: GetKey<Error = E>,
+{
+    let try_keys = |(pk, key_source): (&bitcoin::secp256k1::PublicKey, &KeySource)| -> Result<Option<PrivateKey>, E> {
+        match k.get_key(KeyRequest::Bip32(key_source.clone()), secp) {
+            Ok(Some(privkey)) => Ok(Some(privkey)),
+            Ok(None) | Err(..) => k.get_key(KeyRequest::Pubkey(bitcoin::PublicKey::new(*pk)), secp)
+        }
+    };
+
+    psbt_input
+        .bip32_derivation
+        .iter()
+        .find_map(|key_origin| match try_keys(key_origin) {
+            Ok(Some(private_key)) => Some(Ok(private_key.inner)),
+            Ok(None) => None,
+            Err(e) => Some(Err(e)),
+        })
+        .transpose()
+}
+
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
@@ -411,7 +454,7 @@ mod tests {
         use bitcoin::{
             bip32::{DerivationPath, Fingerprint, KeySource},
             psbt::{GetKey, KeyRequest},
-            secp256k1::{Secp256k1, SecretKey, Signing, XOnlyPublicKey},
+            secp256k1::{PublicKey, Secp256k1, SecretKey, Signing, XOnlyPublicKey},
             PrivateKey,
         };
         use std::{collections::BTreeMap, str::FromStr};
@@ -420,6 +463,7 @@ mod tests {
         pub struct MockKeyProvider {
             bip32_keys: BTreeMap<KeySource, PrivateKey>,
             xonly_keys: BTreeMap<XOnlyPublicKey, PrivateKey>,
+            public_keys: BTreeMap<PublicKey, PrivateKey>,
             should_error: Option<KeyRequest>,
         }
 
@@ -442,6 +486,11 @@ mod tests {
                 private_key: PrivateKey,
             ) -> Self {
                 self.xonly_keys.insert(xonly, private_key);
+                self
+            }
+
+            pub fn with_public_key(mut self, pubkey: PublicKey, private_key: PrivateKey) -> Self {
+                self.public_keys.insert(pubkey, private_key);
                 self
             }
 
@@ -468,6 +517,7 @@ mod tests {
                 match key_request {
                     KeyRequest::Bip32(key_source) => Ok(self.bip32_keys.get(&key_source).copied()),
                     KeyRequest::XOnlyPubkey(xonly) => Ok(self.xonly_keys.get(&xonly).copied()),
+                    KeyRequest::Pubkey(pubkey) => Ok(self.public_keys.get(&pubkey.inner).copied()),
                     _ => Ok(None),
                 }
             }
@@ -638,6 +688,162 @@ mod tests {
             let key_provider = MockKeyProvider::default().with_bip32_key(key_source2, private_key);
 
             let result = get_taproot_secret(&psbt_input, &key_provider, &secp).unwrap();
+            assert!(result.is_some());
+        }
+    }
+
+    mod get_non_taproot_secret {
+        use super::key_provider_mock::{create_key_source, create_private_key, MockKeyProvider};
+        use crate::send::psbt::get_non_taproot_secret;
+        use bitcoin::{
+            bip32::{DerivationPath, Fingerprint},
+            psbt,
+            psbt::KeyRequest,
+            secp256k1::{PublicKey, Secp256k1},
+        };
+        use std::str::FromStr;
+
+        #[test]
+        fn empty_bip32_derivation() {
+            let secp = Secp256k1::new();
+            let psbt_input = psbt::Input::default();
+            let key_provider = MockKeyProvider::default();
+
+            let result = get_non_taproot_secret(&psbt_input, &key_provider, &secp).unwrap();
+            assert_eq!(result, None);
+        }
+
+        #[test]
+        fn successful_bip32_key_lookup() {
+            let secp = Secp256k1::new();
+            let key_source = create_key_source();
+            let private_key = create_private_key();
+            let public_key = private_key.public_key(&secp).inner;
+
+            let mut psbt_input = psbt::Input::default();
+            psbt_input
+                .bip32_derivation
+                .insert(public_key, key_source.clone());
+
+            let key_provider = MockKeyProvider::default().with_bip32_key(key_source, private_key);
+
+            let result = get_non_taproot_secret(&psbt_input, &key_provider, &secp).unwrap();
+            assert!(result.is_some());
+        }
+
+        #[test]
+        fn fallback_to_public_key_lookup() {
+            let secp = Secp256k1::new();
+            let key_source = create_key_source();
+            let private_key = create_private_key();
+            let public_key = private_key.public_key(&secp).inner;
+
+            let mut psbt_input = psbt::Input::default();
+            psbt_input
+                .bip32_derivation
+                .insert(public_key, key_source.clone());
+
+            let key_provider = MockKeyProvider::default().with_public_key(public_key, private_key);
+
+            let result = get_non_taproot_secret(&psbt_input, &key_provider, &secp).unwrap();
+            assert!(result.is_some());
+        }
+
+        #[test]
+        fn no_keys_found() {
+            let secp = Secp256k1::new();
+            let key_source = create_key_source();
+            let private_key = create_private_key();
+            let public_key = private_key.public_key(&secp).inner;
+
+            let mut psbt_input = psbt::Input::default();
+            psbt_input
+                .bip32_derivation
+                .insert(public_key, key_source.clone());
+
+            let key_provider = MockKeyProvider::default();
+
+            let result = get_non_taproot_secret(&psbt_input, &key_provider, &secp).unwrap();
+            assert_eq!(result, None);
+        }
+
+        #[test]
+        fn error_in_public_key_lookup() {
+            let secp = Secp256k1::new();
+            let key_source = create_key_source();
+            let private_key = create_private_key();
+            let public_key = private_key.public_key(&secp).inner;
+
+            let mut psbt_input = psbt::Input::default();
+            psbt_input
+                .bip32_derivation
+                .insert(public_key, key_source.clone());
+
+            let key_provider =
+                MockKeyProvider::default().with_error(KeyRequest::Pubkey(public_key.into()));
+
+            let result = get_non_taproot_secret(&psbt_input, &key_provider, &secp);
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn multiple_origins_first_succeeds_stop_iteration() {
+            let secp = Secp256k1::new();
+            let private_key = create_private_key();
+            let public_key_1 = private_key.public_key(&secp).inner;
+            let public_key_2 = PublicKey::from_str(
+                "0234e6a79c5359c613762d537e0e19d86c77c1666d8c9ab050f23acd198e97f93e",
+            )
+            .unwrap();
+            let key_source_1 = create_key_source();
+            let key_source_2 = (
+                Fingerprint::from_str("87654321").unwrap(),
+                DerivationPath::from_str("m/86'/0'/0'/0/1").unwrap(),
+            );
+
+            let mut psbt_input = psbt::Input::default();
+            psbt_input
+                .bip32_derivation
+                .insert(public_key_1, key_source_1.clone());
+            psbt_input
+                .bip32_derivation
+                .insert(public_key_2, key_source_2.clone());
+
+            let key_provider = MockKeyProvider::default()
+                .with_bip32_key(key_source_1, private_key)
+                .with_bip32_key(key_source_2, private_key);
+
+            let result = get_non_taproot_secret(&psbt_input, &key_provider, &secp).unwrap();
+            assert!(result.is_some());
+        }
+
+        #[test]
+        fn multiple_origins_second_succeeds_with_public_key() {
+            let secp = Secp256k1::new();
+            let private_key = create_private_key();
+            let public_key_1 = private_key.public_key(&secp).inner;
+            let public_key_2 = PublicKey::from_str(
+                "0234e6a79c5359c613762d537e0e19d86c77c1666d8c9ab050f23acd198e97f93e",
+            )
+            .unwrap();
+            let key_source_1 = create_key_source();
+            let key_source_2 = (
+                Fingerprint::from_str("87654321").unwrap(),
+                DerivationPath::from_str("m/86'/0'/0'/0/1").unwrap(),
+            );
+
+            let mut psbt_input = psbt::Input::default();
+            psbt_input
+                .bip32_derivation
+                .insert(public_key_1, key_source_1.clone());
+            psbt_input
+                .bip32_derivation
+                .insert(public_key_2, key_source_2.clone());
+
+            let key_provider =
+                MockKeyProvider::default().with_public_key(public_key_2, private_key);
+
+            let result = get_non_taproot_secret(&psbt_input, &key_provider, &secp).unwrap();
             assert!(result.is_some());
         }
     }
