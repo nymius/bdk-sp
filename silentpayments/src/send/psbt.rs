@@ -177,6 +177,38 @@ fn get_prevout_script(psbt_input: &psbt::Input, txin: &TxIn) -> Result<ScriptBuf
     }
 }
 
+/// Builds a complete transaction input with witness or script_sig data from [`Psbt`] input.
+///
+/// This function constructs a complete [`TxIn`] by copying the base transaction input and adding
+/// the final witness or script_sig from the [`Psbt`] input data. For this step to succeed is
+/// important the [`Psbt`] is finalized.
+///
+/// # Arguments
+///
+/// * `txin` - The base transaction input
+/// * `psbt_input` - The [`Psbt`] input containing witness or script_sig data
+///
+/// # Returns
+///
+/// Returns a complete [`TxIn`] with witness or script_sig populated, or a [`SpSendError`] if
+/// neither final witness nor script_sig is available.
+#[allow(unused)]
+fn build_full_txin(txin: &TxIn, psbt_input: &psbt::Input) -> Result<TxIn, SpSendError> {
+    if let Some(ref witness) = psbt_input.final_script_witness {
+        Ok(TxIn {
+            witness: witness.clone(),
+            ..txin.clone()
+        })
+    } else if let Some(ref script_sig) = psbt_input.final_script_sig {
+        Ok(TxIn {
+            script_sig: script_sig.clone(),
+            ..txin.clone()
+        })
+    } else {
+        Err(SpSendError::MissingWitness)
+    }
+}
+
 /// Retrieves the secret key for a taproot input from [`Psbt`] data.
 ///
 /// This function attempts to derive the secret key for a taproot input by trying
@@ -447,6 +479,89 @@ mod tests {
             let result = get_prevout_script(&psbt_input, &txin);
             assert!(result.is_ok());
             assert_eq!(result.unwrap(), witness_script);
+        }
+    }
+
+    mod build_full_txin {
+        use crate::send::{error::SpSendError, psbt::build_full_txin};
+        use bitcoin::{hashes::Hash, psbt, OutPoint, ScriptBuf, Sequence, TxIn, Txid, Witness};
+
+        fn create_txin() -> TxIn {
+            TxIn {
+                previous_output: OutPoint {
+                    txid: Txid::from_slice(&[0u8; 32]).unwrap(),
+                    vout: 0,
+                },
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::ZERO,
+                witness: Witness::new(),
+            }
+        }
+
+        #[test]
+        fn witness_present() {
+            let txin = create_txin();
+            let mut witness = Witness::new();
+            witness.push(vec![0x01, 0x02, 0x03]);
+
+            let psbt_input = psbt::Input {
+                final_script_witness: Some(witness.clone()),
+                ..Default::default()
+            };
+
+            let result = build_full_txin(&txin, &psbt_input);
+
+            assert!(result.is_ok());
+            let full_txin = result.unwrap();
+            assert_eq!(full_txin.witness, witness);
+        }
+
+        #[test]
+        fn script_sig_and_witness_present() {
+            let txin = create_txin();
+            let mut witness = Witness::new();
+            witness.push(vec![0x01, 0x02, 0x03]);
+
+            let psbt_input = psbt::Input {
+                final_script_witness: Some(witness.clone()),
+                final_script_sig: Some(ScriptBuf::new()),
+                ..Default::default()
+            };
+
+            let result = build_full_txin(&txin, &psbt_input);
+
+            assert!(result.is_ok());
+            let full_txin = result.unwrap();
+            assert_eq!(full_txin.witness, witness);
+        }
+
+        #[test]
+        fn script_sig_present_witness_is_none() {
+            let txin = create_txin();
+
+            let psbt_input = psbt::Input {
+                final_script_sig: Some(ScriptBuf::new()),
+                ..Default::default()
+            };
+
+            let result = build_full_txin(&txin, &psbt_input);
+
+            assert!(result.is_ok());
+            let full_txin = result.unwrap();
+            assert_eq!(full_txin.script_sig, ScriptBuf::new());
+        }
+
+        #[test]
+        fn witness_is_none_and_script_sig_is_none() {
+            let txin = create_txin();
+            let psbt_input = psbt::Input {
+                ..Default::default()
+            };
+
+            let result = build_full_txin(&txin, &psbt_input);
+
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), SpSendError::MissingWitness));
         }
     }
 
