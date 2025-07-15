@@ -9,6 +9,10 @@ use bitcoin::{
     secp256k1::{SecretKey, Signing},
     PrivateKey, Psbt, ScriptBuf, TapLeafHash, TapTweakHash, TxIn, TxOut, XOnlyPublicKey,
 };
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, HashMap},
+};
 
 /// A script pubkey paired with its corresponding secret key for silent payment derivation.
 type SpkWithSecret = (ScriptBuf, SecretKey);
@@ -389,21 +393,86 @@ where
         .transpose()
 }
 
+/// Updates [`Psbt`] outputs with derived silent payment script pubkeys.
+///
+/// This function replaces placeholder script pubkeys in the [`Psbt`] outputs with the actual
+/// silent payment script pubkeys derived from the input processing. It validates that
+/// the number of derivations matches the number of placeholder outputs for each
+/// silent payment code.
+///
+/// # Arguments
+///
+/// * `psbt` - A mutable reference to the [`Psbt`] whose outputs will be updated
+/// * `silent_payments` - A mapping of silent payment codes to their derived public keys
+///
+/// # Returns
+///
+/// Returns `Ok(())` on successful update, or a [`SpSendError`] if there's a mismatch
+/// between the number of derivations and outputs.
+///
+/// # Errors
+///
+/// * [`SpSendError::MissingDerivations`] - More placeholder outputs than derivations
+/// * [`SpSendError::MissingOutputs`] - More derivations than placeholder outputs
+#[allow(unused)]
+fn update_outputs(
+    psbt: &mut Psbt,
+    silent_payments: &HashMap<SilentPaymentCode, Vec<XOnlyPublicKey>>,
+) -> Result<(), SpSendError> {
+    let placeholder_spk_to_idx = {
+        let mut map = <BTreeMap<ScriptBuf, Vec<usize>>>::new();
+        for (idx, txout) in psbt.unsigned_tx.output.iter().enumerate() {
+            map.entry(txout.script_pubkey.clone())
+                .or_default()
+                .push(idx);
+        }
+        map
+    };
+
+    for (sp_code, x_only_pks) in silent_payments.iter() {
+        let placeholder_spk = sp_code.get_placeholder_p2tr_spk();
+
+        if let Some(indexes) = placeholder_spk_to_idx.get(&placeholder_spk) {
+            match indexes.len().cmp(&x_only_pks.len()) {
+                Ordering::Greater => return Err(SpSendError::MissingDerivations),
+                Ordering::Less => return Err(SpSendError::MissingOutputs),
+                Ordering::Equal => {
+                    for (idx, xonly_pk) in indexes.iter().zip(x_only_pks) {
+                        let x_only_tweaked = TweakedPublicKey::dangerous_assume_tweaked(*xonly_pk);
+                        let value = psbt.unsigned_tx.output[*idx].value;
+
+                        psbt.unsigned_tx.output[*idx] = TxOut {
+                            script_pubkey: ScriptBuf::new_p2tr_tweaked(x_only_tweaked),
+                            value,
+                        };
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
-    use crate::encoding::SilentPaymentCode;
+    use crate::{
+        encoding::SilentPaymentCode,
+        send::{create_silentpayment_partial_secret, create_silentpayment_scriptpubkeys},
+        LexMin,
+    };
     use bitcoin::{
         ecdsa,
         hashes::Hash,
         key::{Keypair, Secp256k1},
-        secp256k1::{Message, PublicKey, Scalar},
+        secp256k1::{Message, PublicKey, Scalar, SecretKey},
         taproot,
         transaction::Version,
         Amount, EcdsaSighashType, OutPoint, PrivateKey, Psbt, ScriptBuf, Sequence, TapSighashType,
         Transaction, TxIn, TxOut, WPubkeyHash, Witness, XOnlyPublicKey,
     };
-    use std::str::FromStr;
+    use std::{collections::HashMap, str::FromStr};
 
     const SCAN_PK_1: &str = "03f95241dfb00d1d42e2f48fb72e31a06b9fd166c1d6bd12648b41977dd51b9a0b";
     const SPEND_PK_1: &str = "032e58afe51f9ed8ad3cc7897f634d881fdbe49a81564629ded8156bebd2ffd1af";
@@ -489,6 +558,23 @@ mod tests {
         };
 
         Psbt::from_unsigned_tx(tx).unwrap()
+    }
+
+    fn get_sp_derivations(
+        psbt: &Psbt,
+        spk_with_key: &[(ScriptBuf, SecretKey)],
+        sp_codes: &[SilentPaymentCode],
+    ) -> HashMap<SilentPaymentCode, Vec<XOnlyPublicKey>> {
+        let mut lex_min = LexMin::default();
+        lex_min.update(&psbt.unsigned_tx.input[0].previous_output);
+
+        let partial_secret = create_silentpayment_partial_secret(
+            &lex_min.bytes().expect("should succeed"),
+            spk_with_key,
+        )
+        .expect("should succeed");
+
+        create_silentpayment_scriptpubkeys(partial_secret, sp_codes)
     }
 
     mod collect_input_data {
@@ -1382,6 +1468,224 @@ mod tests {
 
             let result = get_non_taproot_secret(&psbt_input, &key_provider, &secp).unwrap();
             assert!(result.is_some());
+        }
+    }
+
+    mod update_outputs {
+        use super::{
+            create_p2tr_input_data, create_test_psbt, get_placeholder_txout, get_sp_derivations,
+            setup_sp_codes,
+        };
+        use crate::send::{error::SpSendError, psbt::update_outputs};
+        use bitcoin::{Amount, ScriptBuf, TxOut};
+        use std::collections::HashMap;
+
+        #[test]
+        fn empty_silent_payments() {
+            let original_psbt = create_test_psbt(vec![]);
+            let mut psbt = original_psbt.clone();
+            let silent_payments = HashMap::new();
+
+            let result = update_outputs(&mut psbt, &silent_payments);
+
+            assert!(result.is_ok());
+            assert_eq!(original_psbt, psbt);
+        }
+
+        #[test]
+        fn no_matching_placeholder_spk() {
+            let sp_codes = setup_sp_codes();
+            let non_matching_output = TxOut {
+                value: Amount::from_sat(1000),
+                script_pubkey: ScriptBuf::new(),
+            };
+            let (priv_key, _, spk, _) = create_p2tr_input_data();
+            let mut psbt = create_test_psbt(vec![non_matching_output]);
+
+            let silent_payments = get_sp_derivations(&psbt, &[(spk, priv_key.inner)], &sp_codes);
+
+            let result = update_outputs(&mut psbt, &silent_payments);
+
+            assert!(result.is_ok());
+            assert_eq!(psbt.unsigned_tx.output[0].script_pubkey, ScriptBuf::new());
+        }
+
+        #[test]
+        fn missing_derivations_error() {
+            let sp_codes = setup_sp_codes();
+            let sp_code = &sp_codes[0];
+
+            let outputs = vec![
+                get_placeholder_txout(1000, sp_code),
+                get_placeholder_txout(2000, sp_code),
+            ];
+            let (priv_key, _, spk, _) = create_p2tr_input_data();
+            let mut psbt = create_test_psbt(outputs);
+
+            let silent_payments =
+                get_sp_derivations(&psbt, &[(spk, priv_key.inner)], &[sp_code.clone()]);
+
+            let result = update_outputs(&mut psbt, &silent_payments);
+
+            assert!(matches!(result, Err(SpSendError::MissingDerivations)));
+        }
+
+        #[test]
+        fn missing_outputs_error() {
+            let sp_codes = setup_sp_codes();
+            let sp_code = &sp_codes[0];
+
+            let outputs = vec![get_placeholder_txout(1000, sp_code)];
+            let mut psbt = create_test_psbt(outputs);
+
+            let (priv_key, _, spk, _) = create_p2tr_input_data();
+            let silent_payments = get_sp_derivations(
+                &psbt,
+                &[(spk, priv_key.inner)],
+                &[sp_code.clone(), sp_code.clone()],
+            );
+
+            let result = update_outputs(&mut psbt, &silent_payments);
+
+            assert!(matches!(result, Err(SpSendError::MissingOutputs)));
+        }
+
+        #[test]
+        fn successful_single_output_update() {
+            let sp_codes = setup_sp_codes();
+            let sp_code = &sp_codes[0];
+
+            let original_value = 1000;
+            let outputs = vec![get_placeholder_txout(original_value, sp_code)];
+            let mut psbt = create_test_psbt(outputs.clone());
+
+            let (priv_key, _, spk, _) = create_p2tr_input_data();
+            let silent_payments =
+                get_sp_derivations(&psbt, &[(spk, priv_key.inner)], &[sp_code.clone()]);
+
+            let result = update_outputs(&mut psbt, &silent_payments);
+
+            assert!(result.is_ok());
+
+            let updated_output = &psbt.unsigned_tx.output[0];
+            assert_eq!(updated_output.value, outputs[0].value);
+
+            assert_ne!(updated_output.script_pubkey, outputs[0].script_pubkey);
+            assert!(updated_output.script_pubkey.is_p2tr());
+        }
+
+        #[test]
+        fn multiple_outputs_single_silent_payment_code() {
+            let sp_codes = setup_sp_codes();
+            let sp_code = &sp_codes[0];
+
+            let outputs = vec![
+                get_placeholder_txout(1000, sp_code),
+                get_placeholder_txout(2000, sp_code),
+            ];
+            let mut psbt = create_test_psbt(outputs.clone());
+
+            let (priv_key, _, spk, _) = create_p2tr_input_data();
+            let silent_payments = get_sp_derivations(
+                &psbt,
+                &[(spk, priv_key.inner)],
+                &[sp_code.clone(), sp_code.clone()],
+            );
+
+            let result = update_outputs(&mut psbt, &silent_payments);
+
+            assert!(result.is_ok());
+            for (idx, _) in outputs.iter().enumerate() {
+                assert_eq!(psbt.unsigned_tx.output[idx].value, outputs[idx].value);
+                assert!(&psbt.unsigned_tx.output[idx].script_pubkey.is_p2tr());
+            }
+        }
+
+        #[test]
+        fn multiple_silent_payment_codes() {
+            let sp_codes = setup_sp_codes();
+            let sp_code_1 = &sp_codes[0];
+            let sp_code_2 = &sp_codes[1];
+            let sp_code_3 = &sp_codes[2];
+
+            let outputs = vec![
+                get_placeholder_txout(1000, sp_code_1),
+                get_placeholder_txout(2000, sp_code_2),
+                get_placeholder_txout(3000, sp_code_3),
+            ];
+            let mut psbt = create_test_psbt(outputs.clone());
+
+            let (priv_key, _, spk, _) = create_p2tr_input_data();
+            let silent_payments = get_sp_derivations(
+                &psbt,
+                &[(spk, priv_key.inner)],
+                &[sp_code_1.clone(), sp_code_2.clone(), sp_code_3.clone()],
+            );
+
+            let result = update_outputs(&mut psbt, &silent_payments);
+
+            assert!(result.is_ok());
+
+            for (idx, _) in outputs.iter().enumerate() {
+                assert_eq!(psbt.unsigned_tx.output[idx].value, outputs[idx].value);
+                assert!(&psbt.unsigned_tx.output[idx].script_pubkey.is_p2tr());
+            }
+        }
+
+        #[test]
+        fn mixed_outputs_some_matching() {
+            let sp_codes = setup_sp_codes();
+            let sp_code = &sp_codes[0];
+
+            let outputs = vec![
+                get_placeholder_txout(1000, sp_code),
+                TxOut {
+                    value: Amount::from_sat(2000),
+                    script_pubkey: ScriptBuf::new(),
+                },
+            ];
+            let mut psbt = create_test_psbt(outputs.clone());
+
+            let (priv_key, _, spk, _) = create_p2tr_input_data();
+            let silent_payments =
+                get_sp_derivations(&psbt, &[(spk, priv_key.inner)], &[sp_code.clone()]);
+
+            let result = update_outputs(&mut psbt, &silent_payments);
+
+            assert!(result.is_ok());
+
+            assert_eq!(psbt.unsigned_tx.output[0].value, outputs[0].value);
+            assert!(&psbt.unsigned_tx.output[0].script_pubkey.is_p2tr());
+            assert_eq!(psbt.unsigned_tx.output[1].script_pubkey, ScriptBuf::new());
+        }
+
+        #[test]
+        fn early_return_on_first_error() {
+            let sp_codes = setup_sp_codes();
+            let sp_code_1 = &sp_codes[0];
+            let sp_code_2 = &sp_codes[1];
+
+            let outputs = vec![
+                get_placeholder_txout(1000, sp_code_1),
+                get_placeholder_txout(2000, sp_code_1),
+                get_placeholder_txout(3000, sp_code_2),
+            ];
+            let mut psbt = create_test_psbt(outputs);
+
+            let (priv_key, _, spk, _) = create_p2tr_input_data();
+            let silent_payments = get_sp_derivations(
+                &psbt,
+                &[(spk, priv_key.inner)],
+                &[sp_code_1.clone(), sp_code_2.clone()],
+            );
+
+            let result = update_outputs(&mut psbt, &silent_payments);
+
+            assert!(result.is_err());
+            assert!(matches!(
+                result.unwrap_err(),
+                SpSendError::MissingDerivations
+            ));
         }
     }
 }
