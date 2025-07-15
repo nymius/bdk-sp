@@ -3,10 +3,11 @@ use super::{
 };
 use crate::{encoding::SilentPaymentCode, receive::extract_pubkey, LexMin, SpInputs};
 use bitcoin::{
+    bip32::KeySource,
     key::{Parity, Secp256k1, TweakedPublicKey, Verification},
     psbt::{self, GetKey, KeyRequest},
     secp256k1::{SecretKey, Signing},
-    Psbt, ScriptBuf, TapTweakHash, TxIn, TxOut,
+    PrivateKey, Psbt, ScriptBuf, TapLeafHash, TapTweakHash, TxIn, TxOut, XOnlyPublicKey,
 };
 
 /// A script pubkey paired with its corresponding secret key for silent payment derivation.
@@ -176,6 +177,69 @@ fn get_prevout_script(psbt_input: &psbt::Input, txin: &TxIn) -> Result<ScriptBuf
     }
 }
 
+/// Retrieves the secret key for a taproot input from [`Psbt`] data.
+///
+/// This function attempts to derive the secret key for a taproot input by trying
+/// both BIP32 derivation and x-only public key lookup. It handles the taproot-specific
+/// key tweaking and parity adjustment required for proper key derivation.
+///
+/// # Arguments
+///
+/// * `psbt_input` - The [`Psbt`] input containing taproot key origin data
+/// * `k` - A key provider implementing the `GetKey` trait
+/// * `secp` - A secp256k1 context for cryptographic operations
+///
+/// # Returns
+///
+/// Returns `Some(SecretKey)` if a valid taproot secret key is found, `None` if no
+/// key can be derived, or a [`GetKey`] error if all key retrieval fail.
+#[allow(unused)]
+fn get_taproot_secret<C, K, E>(
+    psbt_input: &psbt::Input,
+    k: &K,
+    secp: &Secp256k1<C>,
+) -> Result<Option<SecretKey>, E>
+where
+    C: Signing + Verification,
+    K: GetKey<Error = E>,
+{
+    let get_taproot_output_key = |internal_privkey: PrivateKey| -> SecretKey {
+        let mut internal_privkey = internal_privkey;
+        let (x_only_internal, parity) = internal_privkey.inner.x_only_public_key(secp);
+
+        if let Parity::Odd = parity {
+            internal_privkey = internal_privkey.negate();
+        }
+
+        let tap_tweak =
+            TapTweakHash::from_key_and_tweak(x_only_internal, psbt_input.tap_merkle_root);
+
+        internal_privkey.inner.add_tweak(&tap_tweak.to_scalar())
+        .expect("computationally unreachable: can only fail if tap_tweak = -internal_privkey, but tap_tweak is the output of a hash function")
+    };
+
+    let try_tr_keys = |(xonly, (_leaves, key_source)): (
+        &XOnlyPublicKey,
+        &(Vec<TapLeafHash>, KeySource),
+    )|
+     -> Result<Option<PrivateKey>, E> {
+        match k.get_key(KeyRequest::Bip32(key_source.clone()), secp) {
+            Ok(Some(privkey)) => Ok(Some(privkey)),
+            Ok(None) | Err(..) => k.get_key(KeyRequest::XOnlyPubkey(*xonly), secp),
+        }
+    };
+
+    psbt_input
+        .tap_key_origins
+        .iter()
+        .find_map(|key_origin| match try_tr_keys(key_origin) {
+            Ok(Some(private_key)) => Some(Ok(get_taproot_output_key(private_key))),
+            Ok(None) => None,
+            Err(e) => Some(Err(e)),
+        })
+        .transpose()
+}
+
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
@@ -340,6 +404,241 @@ mod tests {
             let result = get_prevout_script(&psbt_input, &txin);
             assert!(result.is_ok());
             assert_eq!(result.unwrap(), witness_script);
+        }
+    }
+
+    mod key_provider_mock {
+        use bitcoin::{
+            bip32::{DerivationPath, Fingerprint, KeySource},
+            psbt::{GetKey, KeyRequest},
+            secp256k1::{Secp256k1, SecretKey, Signing, XOnlyPublicKey},
+            PrivateKey,
+        };
+        use std::{collections::BTreeMap, str::FromStr};
+
+        #[derive(Default)]
+        pub struct MockKeyProvider {
+            bip32_keys: BTreeMap<KeySource, PrivateKey>,
+            xonly_keys: BTreeMap<XOnlyPublicKey, PrivateKey>,
+            should_error: Option<KeyRequest>,
+        }
+
+        #[derive(Debug, PartialEq)]
+        pub struct TestError;
+
+        impl MockKeyProvider {
+            pub fn with_bip32_key(
+                mut self,
+                key_source: KeySource,
+                private_key: PrivateKey,
+            ) -> Self {
+                self.bip32_keys.insert(key_source, private_key);
+                self
+            }
+
+            pub fn with_xonly_key(
+                mut self,
+                xonly: XOnlyPublicKey,
+                private_key: PrivateKey,
+            ) -> Self {
+                self.xonly_keys.insert(xonly, private_key);
+                self
+            }
+
+            pub fn with_error(mut self, key_request: KeyRequest) -> Self {
+                self.should_error = Some(key_request);
+                self
+            }
+        }
+
+        impl GetKey for MockKeyProvider {
+            type Error = TestError;
+
+            fn get_key<C: Signing>(
+                &self,
+                key_request: KeyRequest,
+                _secp: &Secp256k1<C>,
+            ) -> Result<Option<PrivateKey>, Self::Error> {
+                if let Some(ref key_request_to_err) = self.should_error {
+                    if key_request == *key_request_to_err {
+                        return Err(TestError);
+                    }
+                }
+
+                match key_request {
+                    KeyRequest::Bip32(key_source) => Ok(self.bip32_keys.get(&key_source).copied()),
+                    KeyRequest::XOnlyPubkey(xonly) => Ok(self.xonly_keys.get(&xonly).copied()),
+                    _ => Ok(None),
+                }
+            }
+        }
+
+        pub fn create_key_source() -> KeySource {
+            (
+                Fingerprint::from_str("12345678").unwrap(),
+                DerivationPath::from_str("m/86'/0'/0'/0/0").unwrap(),
+            )
+        }
+
+        pub fn create_private_key() -> PrivateKey {
+            let secret_key = SecretKey::from_slice(&[1u8; 32]).unwrap();
+            PrivateKey::new(secret_key, bitcoin::Network::Bitcoin)
+        }
+    }
+
+    mod get_taproot_secret {
+        use super::key_provider_mock::{create_key_source, create_private_key, MockKeyProvider};
+        use crate::send::psbt::get_taproot_secret;
+        use bitcoin::{
+            bip32::{DerivationPath, Fingerprint},
+            psbt::{self, KeyRequest},
+            secp256k1::{Secp256k1, XOnlyPublicKey},
+        };
+        use std::str::FromStr;
+
+        #[test]
+        fn empty_tap_key_origins() {
+            let secp = Secp256k1::new();
+            let psbt_input = psbt::Input::default();
+            let key_provider = MockKeyProvider::default();
+
+            let result = get_taproot_secret(&psbt_input, &key_provider, &secp).unwrap();
+            assert_eq!(result, None);
+        }
+
+        #[test]
+        fn successful_bip32_key_lookup() {
+            let secp = Secp256k1::new();
+            let private_key = create_private_key();
+            let key_source = create_key_source();
+            let xonly = XOnlyPublicKey::from_slice(&[2u8; 32]).unwrap();
+
+            let mut psbt_input = psbt::Input::default();
+            psbt_input
+                .tap_key_origins
+                .insert(xonly, (vec![], key_source.clone()));
+
+            let key_provider = MockKeyProvider::default().with_bip32_key(key_source, private_key);
+
+            let result = get_taproot_secret(&psbt_input, &key_provider, &secp).unwrap();
+            assert!(result.is_some());
+        }
+
+        #[test]
+        fn fallback_to_xonly_key_lookup() {
+            let secp = Secp256k1::new();
+            let private_key = create_private_key();
+            let key_source = create_key_source();
+            let xonly = XOnlyPublicKey::from_slice(&[2u8; 32]).unwrap();
+
+            let mut psbt_input = psbt::Input::default();
+            psbt_input
+                .tap_key_origins
+                .insert(xonly, (vec![], key_source.clone()));
+
+            let key_provider = MockKeyProvider::default().with_xonly_key(xonly, private_key);
+
+            let result = get_taproot_secret(&psbt_input, &key_provider, &secp).unwrap();
+            assert!(result.is_some());
+        }
+
+        #[test]
+        fn no_keys_found() {
+            let secp = Secp256k1::new();
+            let key_source = create_key_source();
+            let xonly = XOnlyPublicKey::from_slice(&[2u8; 32]).unwrap();
+
+            let mut psbt_input = psbt::Input::default();
+            psbt_input
+                .tap_key_origins
+                .insert(xonly, (vec![], key_source));
+
+            let key_provider = MockKeyProvider::default();
+
+            let result = get_taproot_secret(&psbt_input, &key_provider, &secp).unwrap();
+            assert_eq!(result, None);
+        }
+
+        #[test]
+        fn error_in_xonly_lookup() {
+            let secp = Secp256k1::new();
+            let key_source = create_key_source();
+            let xonly = XOnlyPublicKey::from_slice(&[2u8; 32]).unwrap();
+
+            let mut psbt_input = psbt::Input::default();
+            psbt_input
+                .tap_key_origins
+                .insert(xonly, (vec![], key_source.clone()));
+
+            let key_provider =
+                MockKeyProvider::default().with_error(KeyRequest::XOnlyPubkey(xonly));
+
+            let result = get_taproot_secret(&psbt_input, &key_provider, &secp);
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn multiple_origins_first_succeeds() {
+            let secp = Secp256k1::new();
+            let private_key = create_private_key();
+            let key_source1 = create_key_source();
+            let key_source2 = (
+                Fingerprint::from_str("87654321").unwrap(),
+                DerivationPath::from_str("m/86'/0'/0'/0/1").unwrap(),
+            );
+            let xonly1 = XOnlyPublicKey::from_str(
+                "cc8a4bc64d897bddc5fbc2f670f7a8ba0b386779106cf1223c6fc5d7cd6fc115",
+            )
+            .unwrap();
+            let xonly2 = XOnlyPublicKey::from_str(
+                "5dc8e62b15e0ebdf44751676be35ba32eed2e84608b290d4061bbff136cd7ba9",
+            )
+            .unwrap();
+
+            let mut psbt_input = psbt::Input::default();
+            psbt_input
+                .tap_key_origins
+                .insert(xonly1, (vec![], key_source1.clone()));
+            psbt_input
+                .tap_key_origins
+                .insert(xonly2, (vec![], key_source2));
+
+            let key_provider = MockKeyProvider::default().with_bip32_key(key_source1, private_key);
+
+            let result = get_taproot_secret(&psbt_input, &key_provider, &secp).unwrap();
+            assert!(result.is_some());
+        }
+
+        #[test]
+        fn multiple_origins_second_succeeds() {
+            let secp = Secp256k1::new();
+            let private_key = create_private_key();
+            let key_source1 = create_key_source();
+            let key_source2 = (
+                Fingerprint::from_str("87654321").unwrap(),
+                DerivationPath::from_str("m/86'/0'/0'/0/1").unwrap(),
+            );
+            let xonly1 = XOnlyPublicKey::from_str(
+                "cc8a4bc64d897bddc5fbc2f670f7a8ba0b386779106cf1223c6fc5d7cd6fc115",
+            )
+            .unwrap();
+            let xonly2 = XOnlyPublicKey::from_str(
+                "5dc8e62b15e0ebdf44751676be35ba32eed2e84608b290d4061bbff136cd7ba9",
+            )
+            .unwrap();
+
+            let mut psbt_input = psbt::Input::default();
+            psbt_input
+                .tap_key_origins
+                .insert(xonly1, (vec![], key_source1));
+            psbt_input
+                .tap_key_origins
+                .insert(xonly2, (vec![], key_source2.clone()));
+
+            let key_provider = MockKeyProvider::default().with_bip32_key(key_source2, private_key);
+
+            let result = get_taproot_secret(&psbt_input, &key_provider, &secp).unwrap();
+            assert!(result.is_some());
         }
     }
 }
