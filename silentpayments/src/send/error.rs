@@ -18,6 +18,10 @@ pub enum SpSendError {
     MissingPlaceholderScript,
     /// Error while requesting keys
     KeyError,
+    /// There are not enough silent payment derivations for all targeted outputs
+    MissingDerivations,
+    /// There are not enough outputs for the silent payments derived
+    MissingOutputs,
 }
 
 impl From<crate::LexMinError> for SpSendError {
@@ -57,6 +61,8 @@ impl std::fmt::Display for SpSendError {
                 f,
                 "From PSBT, missing witness to get public key to derive silent payment output"
             ),
+            Self::MissingDerivations => write!(f, "From PSBT, there are not enough silent payment derivations for all targeted outputs"),
+            Self::MissingOutputs => write!(f, "From PSBT, there are not enough outputs for the silent payments derived"),
             Self::MissingPrevout => write!(f, "From PSBT, unable to extract prevout script pubkey"),
             Self::MissingPlaceholderScript => write!(f, "From PSBT, missing placeholder script pubkey for associated silent payment recipient."),
         }
