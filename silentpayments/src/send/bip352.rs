@@ -50,6 +50,6 @@ impl SpSender {
         let partial_secret =
             create_silentpayment_partial_secret(&lex_min.bytes()?, &spks_with_keys)?;
 
-        create_silentpayment_scriptpubkeys(partial_secret, outputs)
+        Ok(create_silentpayment_scriptpubkeys(partial_secret, outputs))
     }
 }

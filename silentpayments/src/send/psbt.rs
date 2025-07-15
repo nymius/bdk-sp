@@ -130,7 +130,7 @@ where
     if !spks_with_keys.is_empty() {
         let partial_secret =
             create_silentpayment_partial_secret(&lex_min.bytes()?, &spks_with_keys)?;
-        let silent_payments = create_silentpayment_scriptpubkeys(partial_secret, recipients)?;
+        let silent_payments = create_silentpayment_scriptpubkeys(partial_secret, recipients);
         for (sp_code, x_only_pks) in silent_payments.iter() {
             let placeholder_spk = sp_code.get_placeholder_p2tr_spk();
             for x_only_pubkey in x_only_pks {
