@@ -21,7 +21,6 @@ type SpkWithSecret = (ScriptBuf, SecretKey);
 ///
 /// This structure holds the collected script pubkeys with their associated secret keys and the
 /// lexicographically smallest outpoint bytes needed for the silent payment protocol.
-#[allow(unused)]
 #[derive(Debug)]
 struct DataForPartialSecret {
     /// Vector of script pubkeys paired with their corresponding secret keys
@@ -39,118 +38,159 @@ impl Default for DataForPartialSecret {
     }
 }
 
+/// Derives silent payments from a [`Psbt`] and updates the transaction outputs.
+///
+/// This function processes a [`Psbt`] to detect inputs available for shared secret derivation, get
+/// the matching secrets for those inputs and uses them to create silent payment script pubkeys for
+/// the given recipients. Finally it updates the [`Psbt`] outputs with the derived silent payment
+/// addresses.
+/// This function doesn't allow multi party derivation, as the caller should know the private keys
+/// of all the inputs available for shared secret derivation in order to update the [`Psbt`] with
+/// the silent payments script pubkeys.
+///
+/// # Arguments
+///
+/// * `psbt` - A mutable reference to the [`Psbt`] to process
+/// * `k` - A key provider implementing the [`GetKey`] trait
+/// * `recipients` - A slice of [`SilentPaymentCode`] representing the recipients
+/// * `secp` - A [`Secp256k1`] context for cryptographic operations
+///
+/// # Returns
+///
+/// Returns `Ok(())` on successful derivation and [`Psbt`] update, or a [`SpSendError`] if the
+/// process fails at any step.
+///
+/// # Errors
+///
+/// * [`SpSendError::MissingInputsForSharedSecretDerivation`] - No usable inputs found for derivation
+/// * [`SpSendError::KeyError`] - Failed to retrieve required private keys
+/// * [`SpSendError::MissingDerivations`] - Insufficient derivations for placeholder outputs
+/// * [`SpSendError::MissingOutputs`] - Insufficient outputs for derived keys
+///
+/// # Example
+///
+/// ```rust
+/// use bdk_sp::encoding::SilentPaymentCode;
+/// use bdk_sp::send::psbt::derive_sp;
+/// # use bitcoin::{
+/// #     bip32::{DerivationPath, Fingerprint},
+/// #     key::{Keypair, Secp256k1},
+/// #     secp256k1::Message,
+/// #     taproot,
+/// #     transaction::Version,
+/// #     Amount, OutPoint, PrivateKey, Psbt, ScriptBuf, Sequence, TapSighashType, Transaction, TxIn,
+/// #     TxOut, Witness, XOnlyPublicKey,
+/// # };
+/// # use std::collections::BTreeMap;
+/// # use std::str::FromStr;
+///
+/// # const TESTNET_CODE: &str = "tsp1qq0u4yswlkqx36shz7j8mwt335p4el5txc8tt6yny3dqewlw4rwdqkqewtzh728u7mzkne3uf0a35mzqlm0jf4q2kgc5aakq4d04a9l734uxwehmt";
+/// # const PRIV_KEY: &str = "cVt4o7BGAig1UXywgGSmARhxMdzP5qvQsxKkSsc1XEkw3tDTQFpy";
+/// #
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let secp = Secp256k1::new();
+/// let sp_code = SilentPaymentCode::try_from(TESTNET_CODE)?;
+/// let unsigned_tx = Transaction {
+///     version: Version::TWO,
+///     lock_time: bitcoin::locktime::absolute::LockTime::ZERO,
+///     input: vec![TxIn {
+///        previous_output: OutPoint {
+///            txid: "a7115c7267dbb4aab62b37818d431b784fe731f4d2f9fa0939a9980d581690ec"
+///                .parse()
+///                .unwrap(),
+///            vout: 0,
+///        },
+///        script_sig: ScriptBuf::new(),
+///        sequence: Sequence::MAX,
+///        witness: Witness::new(),
+///    }],
+///     output: vec![TxOut {
+///         value: Amount::from_sat(1000),
+///         script_pubkey: sp_code.get_placeholder_p2tr_spk(),
+///     }],
+/// };
+///
+/// let mut psbt = Psbt::from_unsigned_tx(unsigned_tx)?;
+///
+/// // Sign and finalize PSBT
+/// // ...
+/// // ...
+/// # let original_psbt = psbt.clone();
+/// # let prv_k = PrivateKey::from_str(PRIV_KEY).expect("reading from constant");
+/// # let witness = {
+/// #     let message = Message::from_digest([1u8; 32]);
+/// #     let keypair = Keypair::from_secret_key(&secp, &prv_k.inner);
+/// #     let signature = secp.sign_schnorr(&message, &keypair);
+/// #     let tr_sig = taproot::Signature {
+/// #         signature,
+/// #         sighash_type: TapSighashType::All,
+/// #     };
+/// #     Witness::p2tr_key_spend(&tr_sig)
+/// # };
+/// #
+/// # let (xonly_pubkey, _) = prv_k.inner.x_only_public_key(&secp);
+/// #
+/// # let p2tr_spk = ScriptBuf::new_p2tr(&secp, xonly_pubkey, None);
+/// #
+/// # let key_source = (
+/// #     Fingerprint::from_str("12345678").unwrap(),
+/// #     DerivationPath::from_str("m/86'/0'/0'/0/0").unwrap(),
+/// # );
+/// # psbt.inputs[0]
+/// #     .tap_key_origins
+/// #     .insert(xonly_pubkey, (vec![], key_source.clone()));
+/// # psbt.inputs[0].witness_utxo = Some(TxOut {
+/// #     value: Amount::from_sat(10000),
+/// #     script_pubkey: p2tr_spk,
+/// # });
+/// # psbt.inputs[0].final_script_witness = Some(witness);
+///
+/// // Signed, and finalized PSBT
+/// let mut signed_psbt: Psbt;
+/// # signed_psbt = psbt.clone();
+///
+/// let mut key_provider: BTreeMap<XOnlyPublicKey, PrivateKey>;
+/// # key_provider = BTreeMap::new();
+/// # key_provider.insert(xonly_pubkey, prv_k);
+///
+/// let recipients = vec![sp_code];
+///
+/// // Derive silent payments and update PSBT outputs
+/// derive_sp(&mut signed_psbt, &key_provider, &recipients, &secp)?;
+/// # assert_eq!(
+/// #     original_psbt.unsigned_tx.output[0].value,
+/// #     signed_psbt.unsigned_tx.output[0].value
+/// # );
+/// # assert_ne!(
+/// #     original_psbt.unsigned_tx.output[0].script_pubkey,
+/// #     signed_psbt.unsigned_tx.output[0].script_pubkey
+/// # );
+/// # assert!(&signed_psbt.unsigned_tx.output[0].script_pubkey.is_p2tr());
+/// # Ok(())
+/// # }
+/// ```
 pub fn derive_sp<C, K>(
     psbt: &mut Psbt,
     k: &K,
     recipients: &[SilentPaymentCode],
     secp: &Secp256k1<C>,
-) -> Result<Psbt, SpSendError>
+) -> Result<(), SpSendError>
 where
     C: Signing + Verification,
     K: GetKey,
 {
-    let tx = psbt.unsigned_tx.clone();
+    let DataForPartialSecret {
+        scripts_with_secrets,
+        lex_min_outpoint,
+    } = collect_input_data(psbt, k, secp)?;
 
-    let mut spks_with_keys: Vec<(ScriptBuf, SecretKey)> = vec![];
-    let mut lex_min = LexMin::default();
-    for (txin, psbt_input) in tx.input.iter().zip(psbt.inputs.iter()) {
-        let prevout = {
-            match (&psbt_input.witness_utxo, &psbt_input.non_witness_utxo) {
-                (Some(txout), _) => txout.script_pubkey.clone(),
-                (_, Some(tx)) => {
-                    let txout = tx
-                        .tx_out(txin.previous_output.vout as usize)
-                        .map_err(SpSendError::IndexError)?;
-                    txout.script_pubkey.clone()
-                }
-                _ => return Err(SpSendError::MissingPrevout),
-            }
-        };
+    let partial_secret =
+        create_silentpayment_partial_secret(&lex_min_outpoint, &scripts_with_secrets)?;
+    let silent_payments = create_silentpayment_scriptpubkeys(partial_secret, recipients);
 
-        lex_min.update(&txin.previous_output);
+    update_outputs(psbt, &silent_payments)?;
 
-        let mut full_txin = txin.clone();
-        if let Some(ref witness) = psbt_input.final_script_witness {
-            full_txin.witness = witness.clone();
-        } else {
-            return Err(SpSendError::MissingWitness);
-        }
-
-        if let Some((input_type, _pk)) = extract_pubkey(full_txin, &prevout) {
-            if let SpInputs::P2TR = input_type {
-                for (&xonly, (_leaf_hashes, key_source)) in psbt_input.tap_key_origins.iter() {
-                    let mut internal_privkey = if let Ok(Some(privkey)) =
-                        k.get_key(KeyRequest::Bip32(key_source.clone()), secp)
-                    {
-                        privkey
-                    } else if let Ok(Some(privkey)) =
-                        k.get_key(KeyRequest::XOnlyPubkey(xonly), secp)
-                    {
-                        privkey
-                    } else {
-                        continue;
-                    };
-                    let (x_only_internal, parity) = internal_privkey.inner.x_only_public_key(secp);
-
-                    if let Parity::Odd = parity {
-                        internal_privkey = internal_privkey.negate();
-                    }
-
-                    let tap_tweak = TapTweakHash::from_key_and_tweak(x_only_internal, None);
-
-                    // NOTE: The parity of the external privkey will be checked on the
-                    // create_silentpayment_partial_secret function
-                    let external_sk = internal_privkey.inner.add_tweak(&tap_tweak.to_scalar())
-                        .expect("computationally unreachable: can only fail if tap_tweak = -internal_privkey, but tap_tweak is the output of a hash function");
-
-                    spks_with_keys.push((prevout.clone(), external_sk));
-                    break;
-                }
-            } else {
-                for (pk, key_source) in psbt_input.bip32_derivation.iter() {
-                    let privkey = if let Ok(Some(privkey)) =
-                        k.get_key(KeyRequest::Bip32(key_source.clone()), secp)
-                    {
-                        privkey
-                    } else if let Ok(Some(privkey)) =
-                        k.get_key(KeyRequest::Pubkey(bitcoin::PublicKey::new(*pk)), secp)
-                    {
-                        privkey
-                    } else {
-                        continue;
-                    };
-
-                    spks_with_keys.push((prevout.clone(), privkey.inner));
-                    break;
-                }
-            }
-        }
-    }
-
-    if !spks_with_keys.is_empty() {
-        let partial_secret =
-            create_silentpayment_partial_secret(&lex_min.bytes()?, &spks_with_keys)?;
-        let silent_payments = create_silentpayment_scriptpubkeys(partial_secret, recipients);
-        for (sp_code, x_only_pks) in silent_payments.iter() {
-            let placeholder_spk = sp_code.get_placeholder_p2tr_spk();
-            for x_only_pubkey in x_only_pks {
-                if let Some(idx) = tx
-                    .output
-                    .iter()
-                    .position(|txout| txout.script_pubkey == placeholder_spk)
-                {
-                    let x_only_tweaked = TweakedPublicKey::dangerous_assume_tweaked(*x_only_pubkey);
-                    let TxOut { value, .. } = tx.output[idx];
-                    psbt.unsigned_tx.output[idx] = TxOut {
-                        script_pubkey: ScriptBuf::new_p2tr_tweaked(x_only_tweaked),
-                        value,
-                    };
-                }
-            }
-        }
-    }
-
-    Ok(psbt.clone())
+    Ok(())
 }
 
 /// Collects input data required for silent payment derivation from a [`Psbt`].
@@ -169,7 +209,6 @@ where
 /// Returns [`DataForPartialSecret`] containing the collected script pubkeys with secrets
 /// and the lexicographically smallest outpoint, or a [`SpSendError`] if no usable inputs
 /// are found.
-#[allow(unused)]
 fn collect_input_data<C, K>(
     psbt: &Psbt,
     k: &K,
@@ -241,7 +280,6 @@ where
 ///
 /// Returns the script pubkey of the previous output, or a [`SpSendError`] if neither
 /// witness nor non-witness UTXO is available, or if the output index is invalid.
-#[allow(unused)]
 fn get_prevout_script(psbt_input: &psbt::Input, txin: &TxIn) -> Result<ScriptBuf, SpSendError> {
     if let Some(txout) = &psbt_input.witness_utxo {
         Ok(txout.script_pubkey.clone())
@@ -270,7 +308,6 @@ fn get_prevout_script(psbt_input: &psbt::Input, txin: &TxIn) -> Result<ScriptBuf
 ///
 /// Returns a complete [`TxIn`] with witness or script_sig populated, or a [`SpSendError`] if
 /// neither final witness nor script_sig is available.
-#[allow(unused)]
 fn build_full_txin(txin: &TxIn, psbt_input: &psbt::Input) -> Result<TxIn, SpSendError> {
     if let Some(ref witness) = psbt_input.final_script_witness {
         Ok(TxIn {
@@ -303,7 +340,6 @@ fn build_full_txin(txin: &TxIn, psbt_input: &psbt::Input) -> Result<TxIn, SpSend
 ///
 /// Returns `Some(SecretKey)` if a valid taproot secret key is found, `None` if no
 /// key can be derived, or a [`GetKey`] error if all key retrieval fail.
-#[allow(unused)]
 fn get_taproot_secret<C, K, E>(
     psbt_input: &psbt::Input,
     k: &K,
@@ -365,7 +401,6 @@ where
 ///
 /// Returns `Some(SecretKey)` if a valid non-taproot secret key is found, `None` if no
 /// key can be derived, or a [`GetKey`] error if all key retrieval fail.
-#[allow(unused)]
 fn get_non_taproot_secret<C, K, E>(
     psbt_input: &psbt::Input,
     k: &K,
@@ -414,7 +449,6 @@ where
 ///
 /// * [`SpSendError::MissingDerivations`] - More placeholder outputs than derivations
 /// * [`SpSendError::MissingOutputs`] - More derivations than placeholder outputs
-#[allow(unused)]
 fn update_outputs(
     psbt: &mut Psbt,
     silent_payments: &HashMap<SilentPaymentCode, Vec<XOnlyPublicKey>>,
@@ -575,6 +609,331 @@ mod tests {
         .expect("should succeed");
 
         create_silentpayment_scriptpubkeys(partial_secret, sp_codes)
+    }
+
+    mod derive_sp {
+        use super::{
+            create_non_p2tr_input_data, create_p2tr_input_data, create_test_psbt,
+            get_placeholder_txout,
+            key_provider_mock::{create_key_source, MockKeyProvider},
+            setup_sp_codes,
+        };
+        use crate::send::{error::SpSendError, psbt::derive_sp};
+        use bitcoin::{
+            ecdsa, hashes::Hash, key::Secp256k1, psbt::KeyRequest, secp256k1::Message,
+            transaction::Version, Amount, EcdsaSighashType, OutPoint, Psbt, ScriptBuf, Sequence,
+            Transaction, TxIn, TxOut, WPubkeyHash, Witness,
+        };
+
+        #[test]
+        fn collect_input_data_error() {
+            let sp_codes = setup_sp_codes();
+            let sp_code = &sp_codes[0];
+            let outputs = vec![get_placeholder_txout(1000, sp_code)];
+            let mut psbt = create_test_psbt(outputs.clone());
+            let (_, xonly_pk, script_pubkey, witness) = create_p2tr_input_data();
+            let key_source = create_key_source();
+            psbt.inputs[0]
+                .tap_key_origins
+                .insert(xonly_pk, (vec![], key_source.clone()));
+            psbt.inputs[0].witness_utxo = Some(TxOut {
+                value: Amount::from_sat(10000),
+                script_pubkey,
+            });
+            psbt.inputs[0].final_script_witness = Some(witness);
+            let secp = Secp256k1::new();
+            let key_provider =
+                MockKeyProvider::default().with_error(KeyRequest::XOnlyPubkey(xonly_pk));
+            let recipients = setup_sp_codes();
+
+            let result = derive_sp(&mut psbt, &key_provider, &recipients, &secp);
+
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), SpSendError::KeyError));
+        }
+
+        #[test]
+        fn empty_scripts_with_secrets() {
+            let sp_codes = setup_sp_codes();
+            let key_provider = MockKeyProvider::default();
+            let secp = Secp256k1::new();
+
+            let mut psbt = {
+                let tx = Transaction {
+                    version: Version::TWO,
+                    lock_time: bitcoin::locktime::absolute::LockTime::ZERO,
+                    input: vec![],
+                    output: vec![],
+                };
+
+                Psbt::from_unsigned_tx(tx).unwrap()
+            };
+
+            let result = derive_sp(&mut psbt, &key_provider, &sp_codes, &secp);
+
+            assert!(result.is_err());
+            assert!(matches!(
+                result.unwrap_err(),
+                SpSendError::MissingInputsForSharedSecretDerivation
+            ));
+        }
+
+        #[test]
+        fn create_partial_secret_error() {
+            let secp = Secp256k1::new();
+            let sp_codes = setup_sp_codes();
+            let sp_code = &sp_codes[0];
+            let outputs = vec![get_placeholder_txout(1000, sp_code)];
+            let mut psbt = {
+                let tx = Transaction {
+                    version: Version::TWO,
+                    lock_time: bitcoin::locktime::absolute::LockTime::ZERO,
+                    input: vec![TxIn {
+                        previous_output: OutPoint {
+                            txid:
+                                "a7115c7267dbb4aab62b37818d431b784fe731f4d2f9fa0939a9980d581690ec"
+                                    .parse()
+                                    .unwrap(),
+                            vout: 0,
+                        },
+                        script_sig: ScriptBuf::new(),
+                        sequence: Sequence::MAX,
+                        witness: Witness::new(),
+                    },
+                TxIn {
+                    previous_output: OutPoint {
+                        txid: "c57007980fabfd7c44895d8fc2c28c6ead93483b7c2bfec682ce0a3eaa4008ce"
+                            .parse()
+                            .unwrap(),
+                        vout: 0,
+                    },
+                    script_sig: ScriptBuf::new(),
+                    sequence: Sequence::MAX,
+                    witness: Witness::new(),
+                }
+                    ],
+                    output: outputs,
+                };
+
+                Psbt::from_unsigned_tx(tx).unwrap()
+            };
+            let (prv_k, pubkey, script_pubkey, witness) = create_non_p2tr_input_data();
+            let key_source = create_key_source();
+            let (neg_prv_k, neg_pk) = {
+                let neg_sk = prv_k.inner.negate();
+                let neg_pk = neg_sk.public_key(&secp);
+                let neg_witness = {
+                    let message = Message::from_digest([1u8; 32]);
+                    let signature = secp.sign_ecdsa(&message, &neg_sk);
+                    let ecdsa_sig = ecdsa::Signature {
+                        signature,
+                        sighash_type: EcdsaSighashType::All,
+                    };
+                    Witness::p2wpkh(&ecdsa_sig, &neg_pk)
+                };
+                let neg_wpk_hash = WPubkeyHash::hash(&neg_pk.serialize());
+                let neg_p2wpkh_spk = ScriptBuf::new_p2wpkh(&neg_wpk_hash);
+                psbt.inputs[1]
+                    .bip32_derivation
+                    .insert(neg_pk, key_source.clone());
+                psbt.inputs[1].witness_utxo = Some(TxOut {
+                    value: Amount::from_sat(10000),
+                    script_pubkey: neg_p2wpkh_spk,
+                });
+                psbt.inputs[1].final_script_witness = Some(neg_witness);
+
+                let neg_prv_k = prv_k.negate();
+                (neg_prv_k, neg_pk)
+            };
+
+            psbt.inputs[0]
+                .bip32_derivation
+                .insert(pubkey, key_source.clone());
+            psbt.inputs[0].witness_utxo = Some(TxOut {
+                value: Amount::from_sat(10000),
+                script_pubkey,
+            });
+            psbt.inputs[0].final_script_witness = Some(witness);
+            let key_provider = MockKeyProvider::default()
+                .with_public_key(pubkey, prv_k)
+                .with_public_key(neg_pk, neg_prv_k);
+
+            let result = derive_sp(&mut psbt, &key_provider, &sp_codes, &secp);
+
+            assert!(result.is_err());
+            assert!(matches!(
+                result.unwrap_err(),
+                SpSendError::Secp256k1Error(bitcoin::secp256k1::Error::InvalidTweak)
+            ));
+        }
+
+        #[test]
+        fn update_outputs_error() {
+            let sp_codes = setup_sp_codes();
+            let sp_code = &sp_codes[0];
+            let outputs = vec![
+                get_placeholder_txout(1000, sp_code),
+                get_placeholder_txout(2000, sp_code),
+            ];
+            let mut psbt = create_test_psbt(outputs.clone());
+            let (priv_key, xonly_pk, script_pubkey, witness) = create_p2tr_input_data();
+            let key_source = create_key_source();
+            psbt.inputs[0]
+                .tap_key_origins
+                .insert(xonly_pk, (vec![], key_source.clone()));
+            psbt.inputs[0].witness_utxo = Some(TxOut {
+                value: Amount::from_sat(10000),
+                script_pubkey,
+            });
+            psbt.inputs[0].final_script_witness = Some(witness);
+
+            let key_provider = MockKeyProvider::default().with_xonly_key(xonly_pk, priv_key);
+            let secp = Secp256k1::new();
+
+            let result = derive_sp(&mut psbt, &key_provider, &sp_codes, &secp);
+
+            assert!(result.is_err());
+            assert!(matches!(
+                result.unwrap_err(),
+                SpSendError::MissingDerivations
+            ));
+        }
+
+        #[test]
+        fn successful_execution() {
+            let sp_codes = setup_sp_codes();
+            let sp_code = &sp_codes[0];
+            let outputs = vec![get_placeholder_txout(1000, sp_code)];
+            let mut psbt = create_test_psbt(outputs.clone());
+            let original_psbt = psbt.clone();
+            let (priv_key, xonly_pk, script_pubkey, witness) = create_p2tr_input_data();
+            let key_source = create_key_source();
+            psbt.inputs[0]
+                .tap_key_origins
+                .insert(xonly_pk, (vec![], key_source.clone()));
+            psbt.inputs[0].witness_utxo = Some(TxOut {
+                value: Amount::from_sat(10000),
+                script_pubkey,
+            });
+            psbt.inputs[0].final_script_witness = Some(witness);
+
+            let key_provider = MockKeyProvider::default().with_xonly_key(xonly_pk, priv_key);
+            let secp = Secp256k1::new();
+
+            let result = derive_sp(&mut psbt, &key_provider, &sp_codes, &secp);
+
+            assert!(result.is_ok());
+            assert_eq!(
+                original_psbt.unsigned_tx.output[0].value,
+                psbt.unsigned_tx.output[0].value
+            );
+            assert_ne!(
+                original_psbt.unsigned_tx.output[0].script_pubkey,
+                psbt.unsigned_tx.output[0].script_pubkey
+            );
+            assert!(&psbt.unsigned_tx.output[0].script_pubkey.is_p2tr());
+        }
+
+        #[test]
+        fn empty_recipients() {
+            let sp_codes = setup_sp_codes();
+            let sp_code = &sp_codes[0];
+            let outputs = vec![get_placeholder_txout(1000, sp_code)];
+            let mut psbt = create_test_psbt(outputs.clone());
+            let original_psbt = psbt.clone();
+            let (priv_key, xonly_pk, script_pubkey, witness) = create_p2tr_input_data();
+            let key_source = create_key_source();
+            psbt.inputs[0]
+                .tap_key_origins
+                .insert(xonly_pk, (vec![], key_source.clone()));
+            psbt.inputs[0].witness_utxo = Some(TxOut {
+                value: Amount::from_sat(10000),
+                script_pubkey,
+            });
+            psbt.inputs[0].final_script_witness = Some(witness);
+
+            let key_provider = MockKeyProvider::default().with_xonly_key(xonly_pk, priv_key);
+            let secp = Secp256k1::new();
+
+            let empty_sp_codes = vec![];
+
+            let result = derive_sp(&mut psbt, &key_provider, &empty_sp_codes, &secp);
+
+            assert!(result.is_ok());
+            // No change in outputs
+            assert_eq!(
+                original_psbt.unsigned_tx.output[0].value,
+                psbt.unsigned_tx.output[0].value
+            );
+            assert_eq!(
+                original_psbt.unsigned_tx.output[0].script_pubkey,
+                psbt.unsigned_tx.output[0].script_pubkey
+            );
+        }
+
+        #[test]
+        fn multiple_recipients() {
+            let mut sp_codes = setup_sp_codes();
+            sp_codes.push(sp_codes[0].clone());
+            let outputs = vec![
+                get_placeholder_txout(1000, &sp_codes[0]),
+                get_placeholder_txout(2000, &sp_codes[1]),
+                get_placeholder_txout(3000, &sp_codes[2]),
+                get_placeholder_txout(1000, &sp_codes[0]),
+            ];
+            let mut psbt = create_test_psbt(outputs.clone());
+            let original_psbt = psbt.clone();
+            let (priv_key, xonly_pk, script_pubkey, witness) = create_p2tr_input_data();
+            let key_source = create_key_source();
+            psbt.inputs[0]
+                .tap_key_origins
+                .insert(xonly_pk, (vec![], key_source.clone()));
+            psbt.inputs[0].witness_utxo = Some(TxOut {
+                value: Amount::from_sat(10000),
+                script_pubkey,
+            });
+            psbt.inputs[0].final_script_witness = Some(witness);
+
+            let key_provider = MockKeyProvider::default().with_xonly_key(xonly_pk, priv_key);
+            let secp = Secp256k1::new();
+
+            let result = derive_sp(&mut psbt, &key_provider, &sp_codes, &secp);
+
+            assert!(result.is_ok());
+
+            for (idx, _) in outputs.iter().enumerate() {
+                assert_eq!(psbt.unsigned_tx.output[idx].value, outputs[idx].value);
+                assert!(&psbt.unsigned_tx.output[idx].script_pubkey.is_p2tr());
+                assert_ne!(
+                    original_psbt.unsigned_tx.output[idx].script_pubkey,
+                    psbt.unsigned_tx.output[idx].script_pubkey
+                );
+            }
+        }
+
+        #[test]
+        fn no_outputs_in_psbt() {
+            let sp_codes = setup_sp_codes();
+            let mut psbt = create_test_psbt(vec![]);
+            let (priv_key, xonly_pk, script_pubkey, witness) = create_p2tr_input_data();
+            let key_source = create_key_source();
+            psbt.inputs[0]
+                .tap_key_origins
+                .insert(xonly_pk, (vec![], key_source.clone()));
+            psbt.inputs[0].witness_utxo = Some(TxOut {
+                value: Amount::from_sat(10000),
+                script_pubkey,
+            });
+            psbt.inputs[0].final_script_witness = Some(witness);
+
+            let key_provider = MockKeyProvider::default().with_xonly_key(xonly_pk, priv_key);
+            let secp = Secp256k1::new();
+
+            let result = derive_sp(&mut psbt, &key_provider, &sp_codes, &secp);
+
+            assert!(result.is_ok());
+            assert!(psbt.unsigned_tx.output.is_empty());
+        }
     }
 
     mod collect_input_data {
