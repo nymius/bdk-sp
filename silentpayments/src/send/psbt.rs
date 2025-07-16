@@ -1,18 +1,13 @@
-use crate::{
-    encoding::SilentPaymentCode,
-    receive::extract_pubkey,
-    send::{create_silentpayment_partial_secret, create_silentpayment_scriptpubkeys},
-    LexMin, SpInputs,
+use super::{
+    create_silentpayment_partial_secret, create_silentpayment_scriptpubkeys, error::SpSendError,
 };
-
+use crate::{encoding::SilentPaymentCode, receive::extract_pubkey, LexMin, SpInputs};
 use bitcoin::{
     key::{Parity, Secp256k1, TweakedPublicKey, Verification},
     psbt::{GetKey, KeyRequest},
     secp256k1::{SecretKey, Signing},
     Psbt, ScriptBuf, TapTweakHash, TxOut,
 };
-
-use super::error::SpSendError;
 
 /// A script pubkey paired with its corresponding secret key for silent payment derivation.
 type SpkWithSecret = (ScriptBuf, SecretKey);
