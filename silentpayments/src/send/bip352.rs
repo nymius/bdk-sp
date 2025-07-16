@@ -2,17 +2,17 @@ use std::collections::HashMap;
 
 use crate::{
     encoding::SilentPaymentCode,
-    get_smallest_lexicographic_outpoint,
     receive::SpOut,
     send::{
         create_silentpayment_partial_secret, create_silentpayment_scriptpubkeys, error::SpSendError,
     },
+    LexMin,
 };
 
 use bitcoin::{
     key::{Secp256k1, TweakedPublicKey},
     secp256k1::{Scalar, SecretKey},
-    OutPoint, ScriptBuf, XOnlyPublicKey,
+    ScriptBuf, XOnlyPublicKey,
 };
 
 pub struct SpSender {
@@ -32,7 +32,7 @@ impl SpSender {
         let secp = Secp256k1::new();
 
         let mut spks_with_keys = <Vec<(ScriptBuf, SecretKey)>>::new();
-        let mut outpoints = <Vec<OutPoint>>::new();
+        let mut lex_min = LexMin::default();
         for spout in inputs {
             // NOTE: The parity of the external privkey will be checked on the
             // create_silentpayment_partial_secret function
@@ -44,13 +44,11 @@ impl SpSender {
 
             let sp_data = (spk, spout_sk);
             spks_with_keys.push(sp_data);
-            outpoints.push(spout.outpoint);
+            lex_min.update(&spout.outpoint);
         }
 
-        let smallest_outpoint_bytes = get_smallest_lexicographic_outpoint(&outpoints);
-
         let partial_secret =
-            create_silentpayment_partial_secret(&smallest_outpoint_bytes, &spks_with_keys)?;
+            create_silentpayment_partial_secret(&lex_min.bytes()?, &spks_with_keys)?;
 
         create_silentpayment_scriptpubkeys(partial_secret, outputs)
     }

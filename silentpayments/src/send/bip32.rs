@@ -2,10 +2,10 @@ use std::collections::HashMap;
 
 use crate::{
     encoding::SilentPaymentCode,
-    get_smallest_lexicographic_outpoint,
     send::{
         create_silentpayment_partial_secret, create_silentpayment_scriptpubkeys, error::SpSendError,
     },
+    LexMin,
 };
 
 use bitcoin::{
@@ -30,10 +30,12 @@ impl XprivSilentPaymentSender {
         outputs: &[SilentPaymentCode],
     ) -> Result<HashMap<SilentPaymentCode, Vec<XOnlyPublicKey>>, SpSendError> {
         let secp = Secp256k1::new();
-        let (outpoints, spks_with_derivations): (Vec<_>, Vec<_>) = inputs.iter().cloned().unzip();
 
         let mut spks_with_keys = <Vec<(ScriptBuf, SecretKey)>>::new();
-        for (spk, derivation_path) in spks_with_derivations {
+        let mut lex_min = LexMin::default();
+        for (outpoint, (spk, derivation_path)) in inputs.iter() {
+            lex_min.update(outpoint);
+
             let bip32_privkey = self.xpriv.derive_priv(&secp, &derivation_path)?;
             let mut internal_privkey = bip32_privkey.private_key;
             let (x_only_internal, parity) = internal_privkey.x_only_public_key(&secp);
@@ -49,13 +51,11 @@ impl XprivSilentPaymentSender {
             let external_privkey = internal_privkey.add_tweak(&tap_tweak.to_scalar())
                 .expect("computationally unreachable: can only fail if tap_tweak = -internal_privkey, but tap_tweak is the output of a hash function");
 
-            spks_with_keys.push((spk, external_privkey));
+            spks_with_keys.push((spk.clone(), external_privkey));
         }
 
-        let smallest_outpoint_bytes = get_smallest_lexicographic_outpoint(&outpoints);
-
         let partial_secret =
-            create_silentpayment_partial_secret(&smallest_outpoint_bytes, &spks_with_keys)?;
+            create_silentpayment_partial_secret(&lex_min.bytes()?, &spks_with_keys)?;
 
         create_silentpayment_scriptpubkeys(partial_secret, outputs)
     }

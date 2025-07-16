@@ -4,6 +4,8 @@ pub enum SpSendError {
     Secp256k1Error(bitcoin::secp256k1::Error),
     /// BIP 32 error
     Bip32Error(bitcoin::bip32::Error),
+    /// Cannot derive silent payment output without input prevout outpoints
+    NoOutpoints(crate::LexMinError),
     /// No available inputs for shared secret derivation
     MissingInputsForSharedSecretDerivation,
     /// PSBT missing witness
@@ -14,6 +16,12 @@ pub enum SpSendError {
     IndexError(bitcoin::blockdata::transaction::OutputsIndexError),
     /// PSBT missing silent payment placeholder script
     MissingPlaceholderScript,
+}
+
+impl From<crate::LexMinError> for SpSendError {
+    fn from(e: crate::LexMinError) -> Self {
+        Self::NoOutpoints(e)
+    }
 }
 
 impl From<bitcoin::secp256k1::Error> for SpSendError {
@@ -40,6 +48,7 @@ impl std::fmt::Display for SpSendError {
             Self::Bip32Error(e) => write!(f, "Silent payment sending error: {e}"),
             Self::Secp256k1Error(e) => write!(f, "Silent payment sending error: {e}"),
             Self::IndexError(e) => write!(f, "From PSBT: {e}"),
+            Self::NoOutpoints(e) => write!(f,  "Silent payment sending error: {e}"),
             Self::MissingInputsForSharedSecretDerivation => write!(f, "No available inputs for shared secret derivation"),
             Self::MissingWitness => write!(
                 f,

@@ -1,12 +1,12 @@
 use std::collections::HashSet;
 
 use bdk_sp::{
-    bitcoin::{secp256k1::SecretKey, OutPoint, ScriptBuf, XOnlyPublicKey},
-    get_smallest_lexicographic_outpoint,
+    bitcoin::{secp256k1::SecretKey, ScriptBuf, XOnlyPublicKey},
     receive::extract_pubkey,
     send::{
         create_silentpayment_partial_secret, create_silentpayment_scriptpubkeys, error::SpSendError,
     },
+    LexMin,
 };
 
 use crate::serialization::{SendingDataGiven, SendingVinData, JSON_VECTORS};
@@ -15,20 +15,17 @@ fn process_sending_given(
     sending_given: &SendingDataGiven,
 ) -> Result<HashSet<XOnlyPublicKey>, SpSendError> {
     let SendingDataGiven { vin, recipients } = sending_given;
-    let outpoints = vin
-        .iter()
-        .map(|SendingVinData { txin, .. }| txin.previous_output)
-        .collect::<Vec<OutPoint>>();
-    let spks_with_keys = vin
-        .iter()
-        .filter_map(|SendingVinData { txin, prevout, sk }| {
-            extract_pubkey(txin.clone(), prevout).map(|_| (prevout.clone(), *sk))
-        })
-        .collect::<Vec<(ScriptBuf, SecretKey)>>();
+    let mut lex_min = LexMin::default();
+    let mut spks_with_keys = <Vec<(ScriptBuf, SecretKey)>>::new();
+    for SendingVinData { txin, prevout, sk } in vin.iter() {
+        lex_min.update(&txin.previous_output);
+        if extract_pubkey(txin.clone(), prevout).is_some() {
+            spks_with_keys.push((prevout.clone(), *sk));
+        }
+    }
     if !spks_with_keys.is_empty() {
-        let smallest_outpoint = get_smallest_lexicographic_outpoint(&outpoints);
         let partial_secret =
-            create_silentpayment_partial_secret(&smallest_outpoint, &spks_with_keys)?;
+            create_silentpayment_partial_secret(&lex_min.bytes()?, &spks_with_keys)?;
         create_silentpayment_scriptpubkeys(partial_secret, recipients)
             .map(|hashmap| hashmap.into_iter().flat_map(|(_, set)| set).collect())
     } else {
