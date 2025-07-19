@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{
     encoding::SilentPaymentCode,
     receive::SpOut,
@@ -8,12 +6,12 @@ use crate::{
     },
     LexMin,
 };
-
 use bitcoin::{
     key::{Secp256k1, TweakedPublicKey},
     secp256k1::{Scalar, SecretKey},
     ScriptBuf, XOnlyPublicKey,
 };
+use std::collections::HashMap;
 
 pub struct SpSender {
     spend_sk: SecretKey,
