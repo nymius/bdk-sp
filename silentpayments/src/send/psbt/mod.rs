@@ -235,7 +235,7 @@ where
 
         let maybe_secret_key = extract_pubkey(full_txin.clone(), &prevout)
             .map(|pubkey_data| match pubkey_data {
-                (SpInputs::P2TR, even_tr_output_key) => {
+                (SpInputs::Tr, even_tr_output_key) => {
                     match get_taproot_secret(psbt_input, k, secp) {
                         Ok(Some(secret)) => {
                             let (xonly, _) = secret.x_only_public_key(secp);
