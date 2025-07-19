@@ -556,57 +556,57 @@ mod test {
     }
 
     #[test]
-    fn test_0_successfully_parse_mainnet_code() {
+    fn vector_0_successfully_parse_mainnet_code() {
         assert_encoding(0);
     }
 
     #[test]
-    fn test_1_successfully_parse_testnet_code() {
+    fn vector_1_successfully_parse_testnet_code() {
         assert_encoding(1);
     }
 
     #[test]
-    fn test_2_successfully_parse_regtest_code() {
+    fn vector_2_successfully_parse_regtest_code() {
         assert_encoding(2);
     }
 
     #[test]
-    fn test_3_fail_to_parse_mainnet_code_with_invalid_spend_key() {
+    fn vector_3_fail_to_parse_mainnet_code_with_invalid_spend_key() {
         assert_encoding(3);
     }
 
     #[test]
-    fn test_4_fail_to_parse_mainnet_code_with_invalid_scan_key() {
+    fn vector_4_fail_to_parse_mainnet_code_with_invalid_scan_key() {
         assert_encoding(4);
     }
 
     #[test]
-    fn test_5_fail_to_parse_code_with_wrong_hrp() {
+    fn vector_5_fail_to_parse_code_with_wrong_hrp() {
         assert_encoding(5);
     }
 
     #[test]
-    fn test_6_successfully_parse_higher_version_code_with_data_portion_above_66_bytes() {
+    fn vector_6_successfully_parse_higher_version_code_with_data_portion_above_66_bytes() {
         assert_encoding(6);
     }
 
     #[test]
-    fn test_7_fail_to_parse_code_with_v31() {
+    fn vector_7_fail_to_parse_code_with_v31() {
         assert_encoding(7);
     }
 
     #[test]
-    fn test_8_fail_to_parse_v0_mainnet_code_with_invalid_data_size() {
+    fn vector_8_fail_to_parse_v0_mainnet_code_with_invalid_data_size() {
         assert_encoding(8);
     }
 
     #[test]
-    fn fail_to_parse_v5_mainnet_code_with_short_data_size() {
+    fn vector_9_fail_to_parse_v5_mainnet_code_with_short_data_size() {
         assert_encoding(9);
     }
 
     #[test]
-    fn fail_to_parse_mainnet_code_with_invalid_checksum() {
+    fn vector_10_fail_to_parse_mainnet_code_with_invalid_checksum() {
         assert_encoding(10);
     }
 
