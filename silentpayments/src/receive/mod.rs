@@ -270,7 +270,7 @@ mod tests {
         use std::str::FromStr;
 
         #[test]
-        fn test_extract_pubkey_wrapped_segwit_ok() {
+        fn wrapped_segwit_ok() {
             let script_pubkey =
                 ScriptBuf::from_hex("a914809b71783f1b55eeadeb1678baef0c994adc425987")
                     .expect("should succeed");
@@ -306,7 +306,7 @@ mod tests {
         }
 
         #[test]
-        fn test_extract_pubkey_p2wpkh_ok() {
+        fn p2wpkh_ok() {
             let script_pubkey = ScriptBuf::from_hex("001453d9c40342ee880e766522c3e2b854d37f2b3cbf")
                 .expect("should succeed");
             // only input from mainnet tx 091d2aaadc409298fd8353a4cd94c319481a0b4623fb00872fe240448e93fcbe
@@ -341,7 +341,7 @@ mod tests {
         }
 
         #[test]
-        fn test_extract_pubkey_p2tr_ok() {
+        fn p2tr_ok() {
             let script_pubkey = ScriptBuf::from_hex(
                 "51200f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667",
             )
@@ -378,7 +378,7 @@ mod tests {
         }
 
         #[test]
-        fn test_extract_pubkey_p2pkh_ok() {
+        fn p2pkh_ok() {
             let script_pubkey =
                 ScriptBuf::from_hex("76a9140c443537e6e31f06e6edb2d4bb80f8481e2831ac88ac")
                     .expect("should succeed");
@@ -411,7 +411,7 @@ mod tests {
         }
 
         #[test]
-        fn test_extract_pubkey_malleated_p2pkh_ok() {
+        fn malleated_p2pkh_ok() {
             let script_pubkey =
                 ScriptBuf::from_hex("76a9147cdd63cc408564188e8e472640e921c7c90e651d88ac")
                     .expect("should succeed");
@@ -445,7 +445,7 @@ mod tests {
         }
 
         #[test]
-        fn test_extract_pubkey_wrapped_segwit_invalid_key() {
+        fn wrapped_segwit_invalid_key() {
             let script_pubkey =
                 ScriptBuf::from_hex("a914809b71783f1b55eeadeb1678baef0c994adc425987")
                     .expect("should succeed");
@@ -469,7 +469,7 @@ mod tests {
         }
 
         #[test]
-        fn test_extract_pubkey_p2wpkh_invalid_key() {
+        fn p2wpkh_invalid_key() {
             let script_pubkey = ScriptBuf::from_hex("001453d9c40342ee880e766522c3e2b854d37f2b3cbf")
                 .expect("should succeed");
             // crafted using the only input from mainnet tx 091d2aaadc409298fd8353a4cd94c319481a0b4623fb00872fe240448e93fcbe as template
@@ -492,7 +492,7 @@ mod tests {
         }
 
         #[test]
-        fn test_extract_pubkey_p2tr_invalid_key() {
+        fn p2tr_invalid_key() {
             let script_pubkey = ScriptBuf::from_hex(
                 "51200000000000000000000000000000000000000000000000000000000000000000",
             )
@@ -516,7 +516,7 @@ mod tests {
         }
 
         #[test]
-        fn test_extract_pubkey_p2pkh_invalid_key() {
+        fn p2pkh_invalid_key() {
             let script_pubkey =
                 ScriptBuf::from_hex("76a9140c443537e6e31f06e6edb2d4bb80f8481e2831ac88ac")
                     .expect("should succeed");
@@ -537,7 +537,7 @@ mod tests {
         }
 
         #[test]
-        fn test_extract_pubkey_wrapped_segwit_uncompressed() {
+        fn wrapped_segwit_uncompressed() {
             let script_pubkey =
                 ScriptBuf::from_hex("a914809b71783f1b55eeadeb1678baef0c994adc425987")
                     .expect("should succeed");
@@ -562,7 +562,7 @@ mod tests {
         }
 
         #[test]
-        fn test_extract_pubkey_p2wpkh_uncompressed() {
+        fn p2wpkh_uncompressed() {
             let script_pubkey = ScriptBuf::from_hex("001453d9c40342ee880e766522c3e2b854d37f2b3cbf")
                 .expect("should succeed");
             // crafted using the only input from mainnet tx 091d2aaadc409298fd8353a4cd94c319481a0b4623fb00872fe240448e93fcbe as template
@@ -584,7 +584,7 @@ mod tests {
             assert!(extract_pubkey(txin, &script_pubkey).is_none());
         }
         #[test]
-        fn test_extract_pubkey_malleated_p2pkh_wrong_pubkey_hash() {
+        fn malleated_p2pkh_wrong_pubkey_hash() {
             // Use a not matching script pubkey to make the pubkey hash differ
             let script_pubkey =
                 ScriptBuf::from_hex("76a914b675771222403e064d9fb4d676fcfef47585b07f88ac")
