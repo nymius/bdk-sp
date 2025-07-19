@@ -1,3 +1,4 @@
+use super::error::SpSendError;
 use crate::{
     encoding::SilentPaymentCode,
     receive::extract_pubkey,
@@ -10,8 +11,6 @@ use bitcoin::{
     secp256k1::{SecretKey, Signing},
     Psbt, ScriptBuf, TapTweakHash, TxOut,
 };
-
-use super::error::SpSendError;
 
 pub fn derive_sp<C, K>(
     psbt: &mut Psbt,

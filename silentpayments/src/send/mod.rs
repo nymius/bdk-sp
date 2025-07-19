@@ -1,23 +1,21 @@
-pub mod bip32;
-pub mod bip352;
-pub mod error;
-pub mod psbt;
-
 use crate::{
     compute_shared_secret,
     encoding::SilentPaymentCode,
     hashes::{InputsHash, SharedSecretHash},
     send::error::SpSendError,
 };
-
 use bitcoin::{
     hashes::{Hash, HashEngine},
     key::{Parity, Secp256k1},
     secp256k1::{PublicKey, Scalar, SecretKey},
     ScriptBuf, XOnlyPublicKey,
 };
-
 use std::collections::HashMap;
+
+pub mod bip32;
+pub mod bip352;
+pub mod error;
+pub mod psbt;
 
 pub fn create_silentpayment_partial_secret(
     smallest_outpoint_bytes: &[u8; 36],

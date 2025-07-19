@@ -1,16 +1,15 @@
 #![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+use bitcoin::{
+    hashes::Hash,
+    secp256k1::{ecdh::shared_secret_point, PublicKey, SecretKey},
+    OutPoint, ScriptBuf, TxIn,
+};
 
 pub mod encoding;
 pub mod hashes;
 pub mod receive;
 pub mod send;
 pub use bitcoin;
-
-use bitcoin::{
-    hashes::Hash,
-    secp256k1::{ecdh::shared_secret_point, PublicKey, SecretKey},
-    OutPoint, ScriptBuf, TxIn,
-};
 
 /// NUM Point used to prune key path spend in taproot
 pub const NUMS_H: [u8; 32] = [

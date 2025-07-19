@@ -1,16 +1,13 @@
+use super::get_silentpayment_script_pubkey;
 use crate::{
     compute_shared_secret,
     receive::{compute_tweak_data, scan_txouts, SpOut, SpReceiveError},
 };
-
-use std::collections::BTreeMap;
-
 use bitcoin::{
     secp256k1::{PublicKey, Scalar, SecretKey},
     ScriptBuf, Transaction, TxOut,
 };
-
-use super::get_silentpayment_script_pubkey;
+use std::collections::BTreeMap;
 
 pub struct Scanner {
     scan_sk: SecretKey,

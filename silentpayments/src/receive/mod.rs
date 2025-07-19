@@ -1,14 +1,8 @@
-pub mod error;
-pub mod scan;
-
 pub use self::error::SpReceiveError;
-
 use crate::{
     hashes::{InputsHash, SharedSecretHash},
     tag_txin, LexMin, SpInputs,
 };
-
-use std::collections::BTreeMap;
 
 use bitcoin::{
     self,
@@ -17,6 +11,10 @@ use bitcoin::{
     secp256k1::{PublicKey, Scalar, SecretKey},
     Amount, OutPoint, PubkeyHash, ScriptBuf, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
 };
+use std::collections::BTreeMap;
+
+pub mod error;
+pub mod scan;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -262,17 +260,15 @@ pub fn compute_tweak_data(
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
-    use super::{extract_pubkey, ScriptBuf, TxIn};
-
+    use super::extract_pubkey;
+    use crate::SpInputs;
     use bitcoin::{
         hex::test_hex_unwrap as hex,
         secp256k1::{self, PublicKey},
-        OutPoint, Sequence, Witness,
+        OutPoint, ScriptBuf, Sequence, TxIn, Witness,
     };
-
     use std::str::FromStr;
 
-    use crate::SpInputs;
 
     #[test]
     fn test_extract_pubkey_wrapped_segwit_ok() {

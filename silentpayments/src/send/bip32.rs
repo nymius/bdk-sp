@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{
     encoding::SilentPaymentCode,
     send::{
@@ -7,13 +5,13 @@ use crate::{
     },
     LexMin,
 };
-
 use bitcoin::{
     bip32::{DerivationPath, Xpriv},
     key::{Parity, Secp256k1},
     secp256k1::SecretKey,
     OutPoint, ScriptBuf, TapTweakHash, XOnlyPublicKey,
 };
+use std::collections::HashMap;
 
 pub struct XprivSilentPaymentSender {
     xpriv: Xpriv,

@@ -15,12 +15,8 @@
 /// - `sp` for Bitcoin mainnet
 /// - `tsp` for Testnet/Signet
 /// - `sprt` for Regtest
-pub mod error;
-
-use crate::hashes::LabelHash;
-
 pub use self::error::{ParseError, UnknownHrpError, VersionError};
-
+use crate::hashes::LabelHash;
 use bitcoin::{
     bech32::{
         primitives::{
@@ -35,6 +31,8 @@ use bitcoin::{
     secp256k1::{PublicKey, Scalar, SecretKey},
     Network, ScriptBuf,
 };
+
+pub mod error;
 
 /// Human readable prefix for encoding bitcoin Mainnet silent payment codes
 pub const SP: Hrp = Hrp::parse_unchecked("sp");
@@ -379,19 +377,16 @@ impl TryFrom<&str> for SilentPaymentCode {
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod test {
-    use std::str::FromStr;
-
+    use super::SilentPaymentCode;
     use bitcoin::{
         hex::DisplayHex,
         network::Network::Bitcoin,
         secp256k1::{PublicKey, Scalar, SecretKey},
         ScriptBuf,
     };
-
     use once_cell::sync::Lazy;
     use serde::Deserialize;
-
-    use super::SilentPaymentCode;
+    use std::str::FromStr;
 
     const ENCODING_TEST_VECTORS: &str = r#"
         [
