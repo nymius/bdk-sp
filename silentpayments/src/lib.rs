@@ -137,18 +137,23 @@ pub fn compute_shared_secret(sk: &SecretKey, pk: &PublicKey) -> PublicKey {
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
-    use super::{tag_txin, Hash, LexMin, ScriptBuf, SpInputs, TxIn, NUMS_H};
-    use bitcoin::{
-        hex::test_hex_unwrap as hex, taproot::TAPROOT_ANNEX_PREFIX, OutPoint, Sequence, Txid,
-        Witness,
-    };
+    use super::{Hash, LexMin};
+    use bitcoin::{OutPoint, Txid};
 
-    #[test]
-    fn test_tag_txin_p2sh_p2wpkh() {
-        let script_pubkey = ScriptBuf::from_hex("a914809b71783f1b55eeadeb1678baef0c994adc425987")
-            .expect("should succeed");
-        // third input from testnet tx 65eb5594eda20b3a2437c2e2c28ba7633f0492cbb33f62ee31469b913ce8a5ca
-        let txin = TxIn {
+    mod tag_txin {
+        use crate::{tag_txin, SpInputs, NUMS_H};
+        use bitcoin::{
+            hex::test_hex_unwrap as hex, taproot::TAPROOT_ANNEX_PREFIX, OutPoint, ScriptBuf,
+            Sequence, TxIn, Witness,
+        };
+
+        #[test]
+        fn test_tag_txin_p2sh_p2wpkh() {
+            let script_pubkey =
+                ScriptBuf::from_hex("a914809b71783f1b55eeadeb1678baef0c994adc425987")
+                    .expect("should succeed");
+            // third input from testnet tx 65eb5594eda20b3a2437c2e2c28ba7633f0492cbb33f62ee31469b913ce8a5ca
+            let txin = TxIn {
             previous_output: OutPoint {
                 txid: "04d984cdcf728975c173c45c49a242cedee2da5dc200b2f83ca6a98aecf11280"
                     .parse()
@@ -163,17 +168,18 @@ mod tests {
             ), hex!("02ae68d299cbb8ab99bf24c9af79a7b13d28ac8cd21f6f7f750300eda41a589a5d")]),
         };
 
-        let tagged_input = tag_txin(&txin, &script_pubkey);
+            let tagged_input = tag_txin(&txin, &script_pubkey);
 
-        assert_eq!(Some(SpInputs::WrappedSegwit), tagged_input);
-    }
+            assert_eq!(Some(SpInputs::WrappedSegwit), tagged_input);
+        }
 
-    #[test]
-    fn test_tag_txin_p2sh_p2wsh() {
-        let script_pubkey = ScriptBuf::from_hex("a914257014cec2f75c19367b2a6a0e08b9f304108e3b87")
-            .expect("should succeed");
-        // only input from mainnet tx 55c7c71c63b87478cd30d401e7ca5344a2e159dc8d6990df695c7e0cb2f82783
-        let txin = TxIn {
+        #[test]
+        fn test_tag_txin_p2sh_p2wsh() {
+            let script_pubkey =
+                ScriptBuf::from_hex("a914257014cec2f75c19367b2a6a0e08b9f304108e3b87")
+                    .expect("should succeed");
+            // only input from mainnet tx 55c7c71c63b87478cd30d401e7ca5344a2e159dc8d6990df695c7e0cb2f82783
+            let txin = TxIn {
             previous_output: OutPoint {
                 txid: "c57007980fabfd7c44895d8fc2c28c6ead93483b7c2bfec682ce0a3eaa4008ce"
                     .parse()
@@ -188,19 +194,19 @@ mod tests {
             )]),
         };
 
-        let tagged_input = tag_txin(&txin, &script_pubkey);
+            let tagged_input = tag_txin(&txin, &script_pubkey);
 
-        assert_eq!(None, tagged_input);
-    }
+            assert_eq!(None, tagged_input);
+        }
 
-    #[test]
-    fn test_tag_txin_p2tr() {
-        let script_pubkey = ScriptBuf::from_hex(
-            "51200f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667",
-        )
-        .expect("should succeed");
-        // only input from mainnet tx 091d2aaadc409298fd8353a4cd94c319481a0b4623fb00872fe240448e93fcbe
-        let txin = TxIn {
+        #[test]
+        fn test_tag_txin_p2tr() {
+            let script_pubkey = ScriptBuf::from_hex(
+                "51200f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667",
+            )
+            .expect("should succeed");
+            // only input from mainnet tx 091d2aaadc409298fd8353a4cd94c319481a0b4623fb00872fe240448e93fcbe
+            let txin = TxIn {
             previous_output: OutPoint {
                 txid: "a7115c7267dbb4aab62b37818d431b784fe731f4d2f9fa0939a9980d581690ec"
                     .parse()
@@ -214,48 +220,48 @@ mod tests {
             )]),
         };
 
-        let tagged_input = tag_txin(&txin, &script_pubkey);
+            let tagged_input = tag_txin(&txin, &script_pubkey);
 
-        assert_eq!(Some(SpInputs::P2TR), tagged_input);
-    }
+            assert_eq!(Some(SpInputs::P2TR), tagged_input);
+        }
 
-    #[test]
-    fn test_tag_txin_p2tr_nums_point() {
-        let script_pubkey = ScriptBuf::from_hex(
-            "51200f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667",
-        )
-        .expect("should succeed");
-        let mut nums_in_witness = [0u8; 33];
-        nums_in_witness[1..33].clone_from_slice(&NUMS_H);
-        // Crafted P2TR Tx with NUMS point as internal key
-        let txin = TxIn {
-            previous_output: OutPoint {
-                txid: "a7115c7267dbb4aab62b37818d431b784fe731f4d2f9fa0939a9980d581690ec"
-                    .parse()
-                    .unwrap(),
-                vout: 0,
-            },
-            script_sig: ScriptBuf::new(),
-            sequence: Sequence::MAX,
-            witness: Witness::from_slice(&[
-                hex!("02ae68d299cbb8ab99bf24c9af79a7b13d28ac8cd21f6f7f750300eda41a589a5d"),
-                hex!("02ae68d299cbb8ab99bf24c9af79a7b13d28ac8cd21f6f7f750300eda41a589a5d"),
-                nums_in_witness.to_vec(),
-                vec![TAPROOT_ANNEX_PREFIX],
-            ]),
-        };
-
-        let tagged_input = tag_txin(&txin, &script_pubkey);
-
-        assert_eq!(None, tagged_input);
-    }
-
-    #[test]
-    fn test_tag_txin_p2wpkh() {
-        let script_pubkey = ScriptBuf::from_hex("001453d9c40342ee880e766522c3e2b854d37f2b3cbf")
+        #[test]
+        fn test_tag_txin_p2tr_nums_point() {
+            let script_pubkey = ScriptBuf::from_hex(
+                "51200f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667",
+            )
             .expect("should succeed");
-        // only input from mainnet tx 091d2aaadc409298fd8353a4cd94c319481a0b4623fb00872fe240448e93fcbe
-        let txin = TxIn {
+            let mut nums_in_witness = [0u8; 33];
+            nums_in_witness[1..33].clone_from_slice(&NUMS_H);
+            // Crafted P2TR Tx with NUMS point as internal key
+            let txin = TxIn {
+                previous_output: OutPoint {
+                    txid: "a7115c7267dbb4aab62b37818d431b784fe731f4d2f9fa0939a9980d581690ec"
+                        .parse()
+                        .unwrap(),
+                    vout: 0,
+                },
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::MAX,
+                witness: Witness::from_slice(&[
+                    hex!("02ae68d299cbb8ab99bf24c9af79a7b13d28ac8cd21f6f7f750300eda41a589a5d"),
+                    hex!("02ae68d299cbb8ab99bf24c9af79a7b13d28ac8cd21f6f7f750300eda41a589a5d"),
+                    nums_in_witness.to_vec(),
+                    vec![TAPROOT_ANNEX_PREFIX],
+                ]),
+            };
+
+            let tagged_input = tag_txin(&txin, &script_pubkey);
+
+            assert_eq!(None, tagged_input);
+        }
+
+        #[test]
+        fn test_tag_txin_p2wpkh() {
+            let script_pubkey = ScriptBuf::from_hex("001453d9c40342ee880e766522c3e2b854d37f2b3cbf")
+                .expect("should succeed");
+            // only input from mainnet tx 091d2aaadc409298fd8353a4cd94c319481a0b4623fb00872fe240448e93fcbe
+            let txin = TxIn {
             previous_output: OutPoint {
                 txid: "a7115c7267dbb4aab62b37818d431b784fe731f4d2f9fa0939a9980d581690ec"
                     .parse()
@@ -270,17 +276,17 @@ mod tests {
             ]),
         };
 
-        let tagged_input = tag_txin(&txin, &script_pubkey);
+            let tagged_input = tag_txin(&txin, &script_pubkey);
 
-        assert_eq!(Some(SpInputs::P2WPKH), tagged_input);
-    }
+            assert_eq!(Some(SpInputs::P2WPKH), tagged_input);
+        }
 
-    #[test]
-    fn test_tag_txin_invalid_p2wpkh_input_with_non_empty_script_sig() {
-        let script_pubkey = ScriptBuf::from_hex("001453d9c40342ee880e766522c3e2b854d37f2b3cbf")
-            .expect("should succeed");
-        // Crafted example taking mainnet tx 091d2aaadc409298fd8353a4cd94c319481a0b4623fb00872fe240448e93fcbe as template
-        let txin = TxIn {
+        #[test]
+        fn test_tag_txin_invalid_p2wpkh_input_with_non_empty_script_sig() {
+            let script_pubkey = ScriptBuf::from_hex("001453d9c40342ee880e766522c3e2b854d37f2b3cbf")
+                .expect("should succeed");
+            // Crafted example taking mainnet tx 091d2aaadc409298fd8353a4cd94c319481a0b4623fb00872fe240448e93fcbe as template
+            let txin = TxIn {
             previous_output: OutPoint {
                 txid: "a7115c7267dbb4aab62b37818d431b784fe731f4d2f9fa0939a9980d581690ec"
                     .parse()
@@ -296,18 +302,18 @@ mod tests {
             ]),
         };
 
-        let tagged_input = tag_txin(&txin, &script_pubkey);
+            let tagged_input = tag_txin(&txin, &script_pubkey);
 
-        assert_eq!(None, tagged_input);
-    }
+            assert_eq!(None, tagged_input);
+        }
 
-    #[test]
-    fn test_tag_txin_p2pkh() {
-        let script_pubkey =
-            ScriptBuf::from_hex("76a9140c443537e6e31f06e6edb2d4bb80f8481e2831ac88ac")
-                .expect("should succeed");
-        // only input from mainnet tx 4316fe7be359937317f42ffaf05ab02554297fb83096a0beb985a25f9e338215
-        let txin = TxIn {
+        #[test]
+        fn test_tag_txin_p2pkh() {
+            let script_pubkey =
+                ScriptBuf::from_hex("76a9140c443537e6e31f06e6edb2d4bb80f8481e2831ac88ac")
+                    .expect("should succeed");
+            // only input from mainnet tx 4316fe7be359937317f42ffaf05ab02554297fb83096a0beb985a25f9e338215
+            let txin = TxIn {
             previous_output: OutPoint {
                 txid: "40e331b67c0fe7750bb3b1943b378bf702dce86124dc12fa5980f975db7ec930"
                     .parse()
@@ -319,17 +325,17 @@ mod tests {
             witness: Witness::new(),
         };
 
-        let tagged_input = tag_txin(&txin, &script_pubkey);
+            let tagged_input = tag_txin(&txin, &script_pubkey);
 
-        assert_eq!(Some(SpInputs::P2PKH), tagged_input);
-    }
+            assert_eq!(Some(SpInputs::P2PKH), tagged_input);
+        }
 
-    #[test]
-    fn test_tag_txin_p2pk() {
-        let script_pubkey = ScriptBuf::from_hex("41049464205950188c29d377eebca6535e0f3699ce4069ecd77ffebfbd0bcf95e3c134cb7d2742d800a12df41413a09ef87a80516353a2f0a280547bb5512dc03da8ac")
+        #[test]
+        fn test_tag_txin_p2pk() {
+            let script_pubkey = ScriptBuf::from_hex("41049464205950188c29d377eebca6535e0f3699ce4069ecd77ffebfbd0bcf95e3c134cb7d2742d800a12df41413a09ef87a80516353a2f0a280547bb5512dc03da8ac")
             .expect("should succeed");
-        // only input from mainnet tx e827a366ad4fc9a305e0901fe1eefc7e9fb8d70655a079877cf1ead0c3618ec0
-        let txin = TxIn {
+            // only input from mainnet tx e827a366ad4fc9a305e0901fe1eefc7e9fb8d70655a079877cf1ead0c3618ec0
+            let txin = TxIn {
             previous_output: OutPoint {
                 txid: "1db6251a9afce7025a2061a19e63c700dffc3bec368bd1883decfac353357a9d"
                     .parse()
@@ -341,17 +347,18 @@ mod tests {
             witness: Witness::new(),
         };
 
-        let tagged_input = tag_txin(&txin, &script_pubkey);
+            let tagged_input = tag_txin(&txin, &script_pubkey);
 
-        assert_eq!(None, tagged_input);
-    }
+            assert_eq!(None, tagged_input);
+        }
 
-    #[test]
-    fn test_tag_txin_p2sh_no_witness_script_sig_non_empty_spk_is_not_p2wpkh() {
-        let script_pubkey = ScriptBuf::from_hex("a914748284390f9e263a4b766a75d0633c50426eb87587")
-            .expect("should succeed");
-        // Eleventh input from mainnet tx 30c239f3ae062c5f1151476005fd0057adfa6922de1b38d0f11eb657a8157b30
-        let txin = TxIn {
+        #[test]
+        fn test_tag_txin_p2sh_no_witness_script_sig_non_empty_spk_is_not_p2wpkh() {
+            let script_pubkey =
+                ScriptBuf::from_hex("a914748284390f9e263a4b766a75d0633c50426eb87587")
+                    .expect("should succeed");
+            // Eleventh input from mainnet tx 30c239f3ae062c5f1151476005fd0057adfa6922de1b38d0f11eb657a8157b30
+            let txin = TxIn {
             previous_output: OutPoint {
                 txid: "450c309b70fb3f71b63b10ce60af17499bd21b1db39aa47b19bf22166ee67144"
                     .parse()
@@ -363,9 +370,10 @@ mod tests {
             witness: Witness::new(),
         };
 
-        let tagged_input = tag_txin(&txin, &script_pubkey);
+            let tagged_input = tag_txin(&txin, &script_pubkey);
 
-        assert_eq!(None, tagged_input);
+            assert_eq!(None, tagged_input);
+        }
     }
 
     #[test]
