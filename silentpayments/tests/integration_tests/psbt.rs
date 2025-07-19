@@ -1,5 +1,4 @@
 use crate::{assert_silentpayment_derivation, get_silentpayment_keys, EXTERNAL_DESCRIPTOR};
-
 use bdk_sp::{
     bitcoin::{
         absolute::LockTime, secp256k1::Secp256k1, transaction::Version, Address, Amount, BlockHash,
@@ -7,7 +6,6 @@ use bdk_sp::{
     },
     send::psbt::derive_sp,
 };
-
 use bdk_testenv::{bitcoincore_rpc::RpcApi, TestEnv};
 use miniscript::{
     descriptor::DescriptorSecretKey, plan::Assets, psbt::PsbtExt, Descriptor, DescriptorPublicKey,

@@ -1,6 +1,3 @@
-mod psbt;
-mod xpriv_sender;
-
 use bdk_sp::{
     bitcoin::{
         secp256k1::{Secp256k1, SecretKey},
@@ -9,8 +6,10 @@ use bdk_sp::{
     encoding::SilentPaymentCode,
     receive::scan::Scanner,
 };
-
 use std::collections::BTreeMap;
+
+mod psbt;
+mod xpriv_sender;
 
 const EXTERNAL_DESCRIPTOR: &str = "tr([3794bb41]tprv8ZgxMBicQKsPdnaCtnmcGNFdbPsYasZC8UJpLchusVmFodRNuKB66PhkiPWrfDhyREzj4vXtT9VfCP8mFFgy1MRo5bL4W8Z9SF241Sx4kmq/86'/1'/0'/0/*)#dg6yxkuh";
 const SILENT_PAYMENT_SPEND_PRIVKEY: &str = "cRFcZbp7cAeZGsnYKdgSZwH6drJ3XLnPSGcjLNCpRy28tpGtZR11";
