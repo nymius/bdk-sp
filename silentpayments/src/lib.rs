@@ -378,7 +378,7 @@ mod tests {
         use bitcoin::{hashes::Hash, OutPoint, Txid};
 
         #[test]
-        fn test_lex_min_different_txids_and_vouts() {
+        fn different_txids_and_vouts() {
             let mut lex_min = LexMin::default();
             let outpoints = [
                 OutPoint {
@@ -408,14 +408,14 @@ mod tests {
         }
 
         #[test]
-        fn test_lex_min_no_update() {
+        fn no_update() {
             let e = LexMin::default().bytes().expect_err("should fail");
             assert_eq!("No minimal outpoint, update at least once", e.to_string());
         }
 
         // Additional test: same txid, different vouts
         #[test]
-        fn test_lex_min_identical_txid_different_vouts() {
+        fn identical_txid_different_vouts() {
             let mut lex_min = LexMin::default();
             let txid = Txid::from_slice(&[0u8; 32]).unwrap();
             let outpoints = [
@@ -436,7 +436,7 @@ mod tests {
         }
 
         #[test]
-        fn test_lex_min_same_vout_different_txid() {
+        fn same_vout_different_txid() {
             let mut lex_min = LexMin::default();
             let outpoints = [
                 OutPoint {
@@ -465,7 +465,7 @@ mod tests {
         }
 
         #[test]
-        fn test_lex_min_edge_case_max_vout() {
+        fn edge_case_vout_is_u32_max() {
             let mut lex_min = LexMin::default();
             let outpoints = [
                 OutPoint {
@@ -491,7 +491,7 @@ mod tests {
         }
 
         #[test]
-        fn test_lex_min_txid_takes_precedence() {
+        fn txid_takes_precedence() {
             let mut lex_min = LexMin::default();
             let outpoints = [
                 OutPoint {
@@ -516,7 +516,7 @@ mod tests {
         }
 
         #[test]
-        fn test_get_smallest_outpoint_txid_endianness_matters() {
+        fn txid_endianness_matters() {
             let mut lex_min = LexMin::default();
             // big endian: 0x[00][00][00][01]
             // big endian: 0x[a1][b1][c1][d1]
