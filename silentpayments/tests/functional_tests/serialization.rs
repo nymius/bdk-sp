@@ -1,8 +1,4 @@
 #![allow(non_snake_case)]
-
-use once_cell::sync::Lazy;
-use std::collections::HashSet;
-
 use bdk_sp::{
     bitcoin::{
         hashes::hex::FromHex, secp256k1::SecretKey, OutPoint, ScriptBuf, Sequence, TxIn, Txid,
@@ -10,7 +6,9 @@ use bdk_sp::{
     },
     encoding::SilentPaymentCode,
 };
+use once_cell::sync::Lazy;
 use serde::{self, de::Error, Deserialize};
+use std::collections::HashSet;
 
 #[derive(Debug, Deserialize)]
 pub struct TestCase {
