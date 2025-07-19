@@ -145,7 +145,7 @@ mod tests {
         };
 
         #[test]
-        fn test_tag_txin_p2sh_p2wpkh() {
+        fn p2sh_p2wpkh() {
             let script_pubkey =
                 ScriptBuf::from_hex("a914809b71783f1b55eeadeb1678baef0c994adc425987")
                     .expect("should succeed");
@@ -171,7 +171,7 @@ mod tests {
         }
 
         #[test]
-        fn test_tag_txin_p2sh_p2wsh() {
+        fn p2sh_p2wsh() {
             let script_pubkey =
                 ScriptBuf::from_hex("a914257014cec2f75c19367b2a6a0e08b9f304108e3b87")
                     .expect("should succeed");
@@ -197,7 +197,7 @@ mod tests {
         }
 
         #[test]
-        fn test_tag_txin_p2tr() {
+        fn p2tr() {
             let script_pubkey = ScriptBuf::from_hex(
                 "51200f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667",
             )
@@ -223,7 +223,7 @@ mod tests {
         }
 
         #[test]
-        fn test_tag_txin_p2tr_nums_point() {
+        fn p2tr_nums_point() {
             let script_pubkey = ScriptBuf::from_hex(
                 "51200f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667",
             )
@@ -254,7 +254,7 @@ mod tests {
         }
 
         #[test]
-        fn test_tag_txin_p2wpkh() {
+        fn p2wpkh() {
             let script_pubkey = ScriptBuf::from_hex("001453d9c40342ee880e766522c3e2b854d37f2b3cbf")
                 .expect("should succeed");
             // only input from mainnet tx 091d2aaadc409298fd8353a4cd94c319481a0b4623fb00872fe240448e93fcbe
@@ -279,7 +279,7 @@ mod tests {
         }
 
         #[test]
-        fn test_tag_txin_invalid_p2wpkh_input_with_non_empty_script_sig() {
+        fn p2wpkh_with_non_empty_script_sig() {
             let script_pubkey = ScriptBuf::from_hex("001453d9c40342ee880e766522c3e2b854d37f2b3cbf")
                 .expect("should succeed");
             // Crafted example taking mainnet tx 091d2aaadc409298fd8353a4cd94c319481a0b4623fb00872fe240448e93fcbe as template
@@ -305,7 +305,7 @@ mod tests {
         }
 
         #[test]
-        fn test_tag_txin_p2pkh() {
+        fn p2pkh() {
             let script_pubkey =
                 ScriptBuf::from_hex("76a9140c443537e6e31f06e6edb2d4bb80f8481e2831ac88ac")
                     .expect("should succeed");
@@ -328,7 +328,7 @@ mod tests {
         }
 
         #[test]
-        fn test_tag_txin_p2pk() {
+        fn p2pk() {
             let script_pubkey = ScriptBuf::from_hex("41049464205950188c29d377eebca6535e0f3699ce4069ecd77ffebfbd0bcf95e3c134cb7d2742d800a12df41413a09ef87a80516353a2f0a280547bb5512dc03da8ac")
             .expect("should succeed");
             // only input from mainnet tx e827a366ad4fc9a305e0901fe1eefc7e9fb8d70655a079877cf1ead0c3618ec0
@@ -350,7 +350,7 @@ mod tests {
         }
 
         #[test]
-        fn test_tag_txin_p2sh_no_witness_script_sig_non_empty_spk_is_not_p2wpkh() {
+        fn empty_witness_non_empty_script_sig_spk_is_p2sh() {
             let script_pubkey =
                 ScriptBuf::from_hex("a914748284390f9e263a4b766a75d0633c50426eb87587")
                     .expect("should succeed");
