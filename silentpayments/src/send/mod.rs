@@ -320,7 +320,7 @@ mod tests {
         use std::str::FromStr;
 
         #[test]
-        fn test_create_silentpayment_spk_base() {
+        fn three_outputs_all_different() {
             let (partial_secret, sp_codes) = setup_test_data();
 
             let result = create_silentpayment_scriptpubkeys(partial_secret, &sp_codes);
@@ -334,7 +334,7 @@ mod tests {
         }
 
         #[test]
-        fn test_create_silentpayment_spk_with_empty_outputs() {
+        fn with_empty_outputs() {
             let (partial_secret, _) = setup_test_data();
             let empty_outputs: Vec<SilentPaymentCode> = vec![];
 
@@ -344,7 +344,7 @@ mod tests {
         }
 
         #[test]
-        fn test_create_silentpayment_spk_cache_behavior() {
+        fn two_outputs_with_same_scan_key_use_internal_cache() {
             let (partial_secret, sp_codes) = setup_test_data();
 
             assert_eq!(sp_codes[0].scan, sp_codes[2].scan);
@@ -361,7 +361,7 @@ mod tests {
         }
 
         #[test]
-        fn test_create_silentpayment_spk_multiple_calls_deterministic() {
+        fn multiple_calls_deterministic() {
             let (partial_secret, sp_codes) = setup_test_data();
 
             // Generate sp_codes twice with the same inputs
@@ -377,7 +377,7 @@ mod tests {
         }
 
         #[test]
-        fn test_create_silentpayment_spk_duplicate_payment_codes() {
+        fn duplicated_payment_codes() {
             let (partial_secret, mut sp_codes) = setup_test_data();
 
             // Add a duplicate of the first code
@@ -397,7 +397,7 @@ mod tests {
         }
 
         #[test]
-        fn test_create_silentpayment_spk_large_number_of_sp_codes() {
+        fn large_number_of_sp_codes() {
             let (partial_secret, sp_codes) = setup_test_data();
 
             let base_code = &sp_codes[0];
@@ -425,7 +425,7 @@ mod tests {
         }
 
         #[test]
-        fn test_create_silentpayment_spk_different_partial_secrets() {
+        fn different_partial_secrets_produce_different_script_pubkeys() {
             let (partial_secret_1, sp_codes) = setup_test_data();
             let partial_secret_2 =
                 SecretKey::from_str(PARTIAL_SECRET_2).expect("creating from constant");
