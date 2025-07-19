@@ -27,56 +27,56 @@ fn check_generated_proof(test_case: &GenerateTestCase) {
 }
 
 #[test]
-fn test_0_success_case_1() {
+fn vector_0_success_case_1() {
     check_generated_proof(&GENERATE_PROOF_VECTORS[0]);
 }
 
 #[test]
-fn test_1_success_case_2() {
+fn vector_1_success_case_2() {
     check_generated_proof(&GENERATE_PROOF_VECTORS[1]);
 }
 
 #[test]
-fn test_2_success_case_3() {
+fn vector_2_success_case_3() {
     check_generated_proof(&GENERATE_PROOF_VECTORS[2]);
 }
 
 #[test]
-fn test_3_success_case_4() {
+fn vector_3_success_case_4() {
     check_generated_proof(&GENERATE_PROOF_VECTORS[3]);
 }
 
 #[test]
-fn test_4_success_case_5() {
+fn vector_4_success_case_5() {
     check_generated_proof(&GENERATE_PROOF_VECTORS[4]);
 }
 
 #[test]
-fn test_5_success_case_6() {
+fn vector_5_success_case_6() {
     check_generated_proof(&GENERATE_PROOF_VECTORS[5]);
 }
 
 #[test]
-fn test_6_success_case_7() {
+fn vector_6_success_case_7() {
     check_generated_proof(&GENERATE_PROOF_VECTORS[6]);
 }
 
 #[test]
-fn test_7_success_case_8() {
+fn vector_7_success_case_8() {
     check_generated_proof(&GENERATE_PROOF_VECTORS[7]);
 }
 
 #[test]
-fn test_8_failure_case_a_eq_0() {
+fn vector_8_failure_case_a_eq_0() {
     check_generated_proof(&GENERATE_PROOF_VECTORS[8]);
 }
 
 #[test]
-fn test_9_failure_case_a_eq_n_group_order() {
+fn vector_9_failure_case_a_is_group_order() {
     check_generated_proof(&GENERATE_PROOF_VECTORS[9]);
 }
 
 #[test]
-fn test_10_failure_case_b_is_point_at_infinity() {
+fn vector_10_failure_case_b_is_point_at_infinity() {
     check_generated_proof(&GENERATE_PROOF_VECTORS[10]);
 }
