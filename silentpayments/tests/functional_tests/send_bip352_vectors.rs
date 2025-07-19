@@ -1,5 +1,4 @@
-use std::collections::HashSet;
-
+use crate::serialization::{SendingDataGiven, SendingVinData, JSON_VECTORS};
 use bdk_sp::{
     bitcoin::{secp256k1::SecretKey, ScriptBuf, XOnlyPublicKey},
     receive::extract_pubkey,
@@ -8,8 +7,7 @@ use bdk_sp::{
     },
     LexMin,
 };
-
-use crate::serialization::{SendingDataGiven, SendingVinData, JSON_VECTORS};
+use std::collections::HashSet;
 
 fn process_sending_given(
     sending_given: &SendingDataGiven,
