@@ -176,7 +176,7 @@ mod tests {
         use std::str::FromStr;
 
         #[test]
-        fn test_create_partial_secret_base() {
+        fn all_inputs_allowed_for_secret_derivation() {
             let expected_secret =
                 "a2a81adc53cfa31e6e578c085239aab95cb37549f2fb0c8a9028dde883aa4a67";
 
@@ -229,7 +229,7 @@ mod tests {
         }
 
         #[test]
-        fn test_create_partial_secret_no_inputs_for_secret_derivation() {
+        fn no_inputs_for_secret_derivation() {
             let smallest_outpoint = get_smallest_outpoint();
             let spks_with_keys = {
                 let secp = Secp256k1::new();
@@ -249,7 +249,7 @@ mod tests {
         }
 
         #[test]
-        fn test_create_partial_secret_flip_p2tr_key() {
+        fn flip_p2tr_key_parity() {
             let expected_secret =
                 "1449c8855c10392e73734e7b4267c573667bc233d8bc69ce505341cb4a8b58a7";
 
@@ -283,7 +283,7 @@ mod tests {
         }
 
         #[test]
-        fn test_create_partial_secret_point_to_infinity() {
+        fn point_to_infinity() {
             let smallest_outpoint = get_smallest_outpoint();
             let spks_with_keys = {
                 let secp = Secp256k1::new();
