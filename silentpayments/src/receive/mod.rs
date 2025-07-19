@@ -54,17 +54,17 @@ pub fn extract_pubkey(txin: TxIn, script_pubkey: &ScriptBuf) -> Option<(SpInputs
     use SpInputs::*;
 
     tag_txin(&txin, script_pubkey).and_then(|tag| match tag {
-        WrappedSegwit | P2WPKH => {
+        ShWpkh | Wpkh => {
             let maybe_pk = txin.witness.last().expect("already checked is not empty");
             bitcoin::PublicKey::from_slice(maybe_pk)
                 .ok()
                 .filter(|pubkey| pubkey.compressed)
                 .map(|pk| (tag, pk.inner))
         }
-        P2TR => XOnlyPublicKey::from_slice(&script_pubkey.as_bytes()[2..34])
+        Tr => XOnlyPublicKey::from_slice(&script_pubkey.as_bytes()[2..34])
             .ok()
             .map(|xonly_pk| (tag, xonly_pk.public_key(Parity::Even))),
-        P2PKH => txin
+        Pkh => txin
             .script_sig
             .into_bytes()
             .windows(33)
@@ -304,7 +304,7 @@ mod tests {
 
         let (input_type, parsed_pubkey) = maybe_pubkey.expect("is some");
 
-        assert_eq!(SpInputs::WrappedSegwit, input_type);
+        assert_eq!(SpInputs::ShWpkh, input_type);
 
         assert_eq!(expected_pubkey, parsed_pubkey);
     }
@@ -339,7 +339,7 @@ mod tests {
 
         let (input_type, parsed_pubkey) = maybe_pubkey.expect("is some");
 
-        assert_eq!(SpInputs::P2WPKH, input_type);
+        assert_eq!(SpInputs::Wpkh, input_type);
 
         assert_eq!(expected_pubkey, parsed_pubkey);
     }
@@ -376,7 +376,7 @@ mod tests {
 
         let (input_type, parsed_pubkey) = maybe_pubkey.expect("is some");
 
-        assert_eq!(SpInputs::P2TR, input_type);
+        assert_eq!(SpInputs::Tr, input_type);
 
         assert_eq!(expected_pubkey, parsed_pubkey);
     }
@@ -409,7 +409,7 @@ mod tests {
 
         let (input_type, parsed_pubkey) = maybe_pubkey.expect("is some");
 
-        assert_eq!(SpInputs::P2PKH, input_type);
+        assert_eq!(SpInputs::Pkh, input_type);
 
         assert_eq!(expected_pubkey, parsed_pubkey);
     }
@@ -443,7 +443,7 @@ mod tests {
 
         let (input_type, parsed_pubkey) = maybe_pubkey.expect("is some");
 
-        assert_eq!(SpInputs::P2PKH, input_type);
+        assert_eq!(SpInputs::Pkh, input_type);
 
         assert_eq!(expected_pubkey, parsed_pubkey);
     }

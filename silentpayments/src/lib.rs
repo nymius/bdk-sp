@@ -20,10 +20,14 @@ pub const NUMS_H: [u8; 32] = [
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SpInputs {
-    P2TR,
-    P2WPKH,
-    WrappedSegwit,
-    P2PKH,
+    /// The input spends a P2TR output.
+    Tr,
+    /// The input spends a P2WPKH output.
+    Wpkh,
+    /// The input spends a P2WPKH output nested in a P2SH.
+    ShWpkh,
+    /// The inputs spends a P2PKH output.
+    Pkh,
 }
 
 pub fn tag_txin(txin: &TxIn, script_pubkey: &ScriptBuf) -> Option<SpInputs> {
@@ -36,12 +40,12 @@ pub fn tag_txin(txin: &TxIn, script_pubkey: &ScriptBuf) -> Option<SpInputs> {
             .redeem_script()
             .filter(|script_pubkey| script_pubkey.is_p2wpkh())
             // if not P2SH-P2WPKH return None
-            .map(|_| WrappedSegwit),
+            .map(|_| ShWpkh),
         // Native segwit
         (false, true) => {
             // P2WPKH
             if script_pubkey.is_p2wpkh() {
-                Some(P2WPKH)
+                Some(Wpkh)
             } else {
                 // P2TR
                 script_pubkey
@@ -51,13 +55,13 @@ pub fn tag_txin(txin: &TxIn, script_pubkey: &ScriptBuf) -> Option<SpInputs> {
                             .taproot_control_block()
                             .filter(|control_block| control_block[1..33] == NUMS_H)
                             // if P2TR has no internal key return None
-                            .map_or(Some(P2TR), |_| None)
+                            .map_or(Some(Tr), |_| None)
                     })
                     .flatten()
             }
         }
         // No witness, legacy P2PKH
-        (true, false) if script_pubkey.is_p2pkh() => Some(P2PKH),
+        (true, false) if script_pubkey.is_p2pkh() => Some(Pkh),
         // All other cases
         _ => None,
     }
@@ -166,7 +170,7 @@ mod tests {
 
         let tagged_input = tag_txin(&txin, &script_pubkey);
 
-        assert_eq!(Some(SpInputs::WrappedSegwit), tagged_input);
+        assert_eq!(Some(SpInputs::ShWpkh), tagged_input);
     }
 
     #[test]
@@ -217,7 +221,7 @@ mod tests {
 
         let tagged_input = tag_txin(&txin, &script_pubkey);
 
-        assert_eq!(Some(SpInputs::P2TR), tagged_input);
+        assert_eq!(Some(SpInputs::Tr), tagged_input);
     }
 
     #[test]
@@ -273,7 +277,7 @@ mod tests {
 
         let tagged_input = tag_txin(&txin, &script_pubkey);
 
-        assert_eq!(Some(SpInputs::P2WPKH), tagged_input);
+        assert_eq!(Some(SpInputs::Wpkh), tagged_input);
     }
 
     #[test]
@@ -322,7 +326,7 @@ mod tests {
 
         let tagged_input = tag_txin(&txin, &script_pubkey);
 
-        assert_eq!(Some(SpInputs::P2PKH), tagged_input);
+        assert_eq!(Some(SpInputs::Pkh), tagged_input);
     }
 
     #[test]

@@ -51,7 +51,7 @@ where
         }
 
         if let Some((input_type, _pk)) = extract_pubkey(full_txin, &prevout) {
-            if let SpInputs::P2TR = input_type {
+            if let SpInputs::Tr = input_type {
                 for (&xonly, (_leaf_hashes, key_source)) in psbt_input.tap_key_origins.iter() {
                     let mut internal_privkey = if let Ok(Some(privkey)) =
                         k.get_key(KeyRequest::Bip32(key_source.clone()), secp)
