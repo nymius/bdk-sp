@@ -137,9 +137,6 @@ pub fn compute_shared_secret(sk: &SecretKey, pk: &PublicKey) -> PublicKey {
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
-    use super::{Hash, LexMin};
-    use bitcoin::{OutPoint, Txid};
-
     mod tag_txin {
         use crate::{tag_txin, SpInputs, NUMS_H};
         use bitcoin::{
@@ -376,180 +373,185 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_lex_min_different_txids_and_vouts() {
-        let mut lex_min = LexMin::default();
-        let outpoints = [
-            OutPoint {
-                txid: Txid::from_slice(&[3u8; 32]).unwrap(),
-                vout: 2,
-            },
-            OutPoint {
-                txid: Txid::from_slice(&[2u8; 32]).unwrap(),
-                vout: 1,
-            },
-            OutPoint {
-                txid: Txid::from_slice(&[5u8; 32]).unwrap(),
-                vout: 3,
-            },
-        ];
+    mod lex_min {
+        use crate::LexMin;
+        use bitcoin::{hashes::Hash, OutPoint, Txid};
 
-        for outpoint in outpoints.iter() {
-            lex_min.update(outpoint);
+        #[test]
+        fn test_lex_min_different_txids_and_vouts() {
+            let mut lex_min = LexMin::default();
+            let outpoints = [
+                OutPoint {
+                    txid: Txid::from_slice(&[3u8; 32]).unwrap(),
+                    vout: 2,
+                },
+                OutPoint {
+                    txid: Txid::from_slice(&[2u8; 32]).unwrap(),
+                    vout: 1,
+                },
+                OutPoint {
+                    txid: Txid::from_slice(&[5u8; 32]).unwrap(),
+                    vout: 3,
+                },
+            ];
+
+            for outpoint in outpoints.iter() {
+                lex_min.update(outpoint);
+            }
+
+            let result = lex_min.bytes().expect("should succeed");
+
+            let mut expected_bytes = [2u8; 36];
+            expected_bytes[32..36].copy_from_slice(&1u32.to_le_bytes());
+
+            assert_eq!(result, expected_bytes);
         }
 
-        let result = lex_min.bytes().expect("should succeed");
-
-        let mut expected_bytes = [2u8; 36];
-        expected_bytes[32..36].copy_from_slice(&1u32.to_le_bytes());
-
-        assert_eq!(result, expected_bytes);
-    }
-
-    #[test]
-    fn test_lex_min_no_update() {
-        let e = LexMin::default().bytes().expect_err("should fail");
-        assert_eq!("No minimal outpoint, update at least once", e.to_string());
-    }
-
-    // Additional test: same txid, different vouts
-    #[test]
-    fn test_lex_min_identical_txid_different_vouts() {
-        let mut lex_min = LexMin::default();
-        let txid = Txid::from_slice(&[0u8; 32]).unwrap();
-        let outpoints = [
-            OutPoint { txid, vout: 10 },
-            OutPoint { txid, vout: 2 },
-            OutPoint { txid, vout: 5 },
-        ];
-
-        for outpoint in outpoints.iter() {
-            lex_min.update(outpoint);
+        #[test]
+        fn test_lex_min_no_update() {
+            let e = LexMin::default().bytes().expect_err("should fail");
+            assert_eq!("No minimal outpoint, update at least once", e.to_string());
         }
 
-        let result = lex_min.bytes().expect("should succeed");
+        // Additional test: same txid, different vouts
+        #[test]
+        fn test_lex_min_identical_txid_different_vouts() {
+            let mut lex_min = LexMin::default();
+            let txid = Txid::from_slice(&[0u8; 32]).unwrap();
+            let outpoints = [
+                OutPoint { txid, vout: 10 },
+                OutPoint { txid, vout: 2 },
+                OutPoint { txid, vout: 5 },
+            ];
 
-        let mut expected_bytes = [0u8; 36];
-        expected_bytes[32..36].copy_from_slice(&2u32.to_le_bytes());
-        assert_eq!(result, expected_bytes);
-    }
+            for outpoint in outpoints.iter() {
+                lex_min.update(outpoint);
+            }
 
-    #[test]
-    fn test_lex_min_same_vout_different_txid() {
-        let mut lex_min = LexMin::default();
-        let outpoints = [
-            OutPoint {
-                txid: Txid::from_slice(&[2u8; 32]).unwrap(),
-                vout: 7,
-            },
-            OutPoint {
-                txid: Txid::from_slice(&[1u8; 32]).unwrap(),
-                vout: 7,
-            },
-            OutPoint {
-                txid: Txid::from_slice(&[3u8; 32]).unwrap(),
-                vout: 7,
-            },
-        ];
+            let result = lex_min.bytes().expect("should succeed");
 
-        for outpoint in outpoints.iter() {
-            lex_min.update(outpoint);
+            let mut expected_bytes = [0u8; 36];
+            expected_bytes[32..36].copy_from_slice(&2u32.to_le_bytes());
+            assert_eq!(result, expected_bytes);
         }
 
-        let result = lex_min.bytes().expect("should succeed");
+        #[test]
+        fn test_lex_min_same_vout_different_txid() {
+            let mut lex_min = LexMin::default();
+            let outpoints = [
+                OutPoint {
+                    txid: Txid::from_slice(&[2u8; 32]).unwrap(),
+                    vout: 7,
+                },
+                OutPoint {
+                    txid: Txid::from_slice(&[1u8; 32]).unwrap(),
+                    vout: 7,
+                },
+                OutPoint {
+                    txid: Txid::from_slice(&[3u8; 32]).unwrap(),
+                    vout: 7,
+                },
+            ];
 
-        let mut expected_bytes = [1u8; 36];
-        expected_bytes[32..36].copy_from_slice(&7u32.to_le_bytes());
-        assert_eq!(result, expected_bytes);
-    }
+            for outpoint in outpoints.iter() {
+                lex_min.update(outpoint);
+            }
 
-    #[test]
-    fn test_lex_min_edge_case_max_vout() {
-        let mut lex_min = LexMin::default();
-        let outpoints = [
-            OutPoint {
-                txid: Txid::from_slice(&[1u8; 32]).unwrap(),
-                vout: u32::MAX,
-            },
-            OutPoint {
-                txid: Txid::from_slice(&[1u8; 32]).unwrap(),
-                vout: u32::MIN,
-            },
-        ];
+            let result = lex_min.bytes().expect("should succeed");
 
-        for outpoint in outpoints.iter() {
-            lex_min.update(outpoint);
+            let mut expected_bytes = [1u8; 36];
+            expected_bytes[32..36].copy_from_slice(&7u32.to_le_bytes());
+            assert_eq!(result, expected_bytes);
         }
 
-        let result = lex_min.bytes().expect("should succeed");
+        #[test]
+        fn test_lex_min_edge_case_max_vout() {
+            let mut lex_min = LexMin::default();
+            let outpoints = [
+                OutPoint {
+                    txid: Txid::from_slice(&[1u8; 32]).unwrap(),
+                    vout: u32::MAX,
+                },
+                OutPoint {
+                    txid: Txid::from_slice(&[1u8; 32]).unwrap(),
+                    vout: u32::MIN,
+                },
+            ];
 
-        let mut expected_bytes = [1u8; 36];
-        expected_bytes[..32].copy_from_slice(&[1u8; 32]);
-        expected_bytes[32..36].copy_from_slice(&0u32.to_le_bytes());
-        assert_eq!(result, expected_bytes);
-    }
+            for outpoint in outpoints.iter() {
+                lex_min.update(outpoint);
+            }
 
-    #[test]
-    fn test_lex_min_txid_takes_precedence() {
-        let mut lex_min = LexMin::default();
-        let outpoints = [
-            OutPoint {
-                txid: Txid::from_slice(&[8u8; 32]).unwrap(),
-                vout: 0,
-            },
-            OutPoint {
-                txid: Txid::from_slice(&[5u8; 32]).unwrap(),
-                vout: 100,
-            },
-        ];
+            let result = lex_min.bytes().expect("should succeed");
 
-        for outpoint in outpoints.iter() {
-            lex_min.update(outpoint);
+            let mut expected_bytes = [1u8; 36];
+            expected_bytes[..32].copy_from_slice(&[1u8; 32]);
+            expected_bytes[32..36].copy_from_slice(&0u32.to_le_bytes());
+            assert_eq!(result, expected_bytes);
         }
 
-        let result = lex_min.bytes().expect("should succeed");
+        #[test]
+        fn test_lex_min_txid_takes_precedence() {
+            let mut lex_min = LexMin::default();
+            let outpoints = [
+                OutPoint {
+                    txid: Txid::from_slice(&[8u8; 32]).unwrap(),
+                    vout: 0,
+                },
+                OutPoint {
+                    txid: Txid::from_slice(&[5u8; 32]).unwrap(),
+                    vout: 100,
+                },
+            ];
 
-        let mut expected_bytes = [5u8; 36];
-        expected_bytes[32..36].copy_from_slice(&100u32.to_le_bytes());
-        assert_eq!(result, expected_bytes);
-    }
+            for outpoint in outpoints.iter() {
+                lex_min.update(outpoint);
+            }
 
-    #[test]
-    fn test_get_smallest_outpoint_txid_endianness_matters() {
-        let mut lex_min = LexMin::default();
-        // big endian: 0x[00][00][00][01]
-        // big endian: 0x[a1][b1][c1][d1]
-        let mut txid_bytes_be = [0u8; 32];
-        txid_bytes_be[0] = 1;
+            let result = lex_min.bytes().expect("should succeed");
 
-        // little endian: 0x[01][00][00][00]
-        // little endian: 0x[a2][b2][c2][d2]
-        let mut txid_bytes_le = [0u8; 32];
-        txid_bytes_le[31] = 1;
-
-        let outpoints = [
-            OutPoint {
-                txid: Txid::from_slice(&txid_bytes_be).unwrap(),
-                vout: 1,
-            },
-            OutPoint {
-                txid: Txid::from_slice(&txid_bytes_le).unwrap(),
-                vout: 1,
-            },
-        ];
-
-        for outpoint in outpoints.iter() {
-            lex_min.update(outpoint);
+            let mut expected_bytes = [5u8; 36];
+            expected_bytes[32..36].copy_from_slice(&100u32.to_le_bytes());
+            assert_eq!(result, expected_bytes);
         }
 
-        // if Txid is big endian then: [a1] < [a2] => expected_bytes = txid_bytes_be
-        // if Txid is little endian then: [d2] < [d1] => expected_bytes = txid_bytes_le
-        let result = lex_min.bytes().expect("should succeed");
+        #[test]
+        fn test_get_smallest_outpoint_txid_endianness_matters() {
+            let mut lex_min = LexMin::default();
+            // big endian: 0x[00][00][00][01]
+            // big endian: 0x[a1][b1][c1][d1]
+            let mut txid_bytes_be = [0u8; 32];
+            txid_bytes_be[0] = 1;
 
-        let mut expected_bytes = [0u8; 36];
-        expected_bytes[31] = 1;
-        expected_bytes[32..36].copy_from_slice(&1u32.to_le_bytes());
+            // little endian: 0x[01][00][00][00]
+            // little endian: 0x[a2][b2][c2][d2]
+            let mut txid_bytes_le = [0u8; 32];
+            txid_bytes_le[31] = 1;
 
-        assert_eq!(result, expected_bytes);
+            let outpoints = [
+                OutPoint {
+                    txid: Txid::from_slice(&txid_bytes_be).unwrap(),
+                    vout: 1,
+                },
+                OutPoint {
+                    txid: Txid::from_slice(&txid_bytes_le).unwrap(),
+                    vout: 1,
+                },
+            ];
+
+            for outpoint in outpoints.iter() {
+                lex_min.update(outpoint);
+            }
+
+            // if Txid is big endian then: [a1] < [a2] => expected_bytes = txid_bytes_be
+            // if Txid is little endian then: [d2] < [d1] => expected_bytes = txid_bytes_le
+            let result = lex_min.bytes().expect("should succeed");
+
+            let mut expected_bytes = [0u8; 36];
+            expected_bytes[31] = 1;
+            expected_bytes[32..36].copy_from_slice(&1u32.to_le_bytes());
+
+            assert_eq!(result, expected_bytes);
+        }
     }
 }
