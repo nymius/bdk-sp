@@ -8,7 +8,7 @@ use bitcoin::{
     self,
     hashes::{Hash, HashEngine},
     key::{Parity, Secp256k1, TweakedPublicKey},
-    secp256k1::{PublicKey, Scalar, SecretKey},
+    secp256k1::{self, PublicKey, Scalar, SecretKey},
     Amount, OutPoint, PubkeyHash, ScriptBuf, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
 };
 use std::collections::BTreeMap;
@@ -86,89 +86,107 @@ pub fn scan_txouts(
 ) -> Result<Vec<SpOut>, SpReceiveError> {
     let secp = Secp256k1::new();
     let txid: Txid = tx.compute_txid();
+
     let mut outputs_to_check = tx
         .output
         .iter()
         .filter(|x| x.script_pubkey.is_p2tr())
         .enumerate()
-        .flat_map(|(idx, txout)| {
-            let xonly_pubkey = XOnlyPublicKey::from_slice(&txout.script_pubkey.as_bytes()[2..])
-                .expect("p2tr script");
-            [Parity::Even, Parity::Odd].into_iter().map(move |parity| {
-                (
-                    OutPoint::new(txid, idx as u32),
-                    xonly_pubkey.public_key(parity),
-                    txout.script_pubkey.clone(),
-                    txout.value,
-                )
-            })
-        })
-        .collect::<Vec<(OutPoint, PublicKey, ScriptBuf, Amount)>>();
+        .map(|(idx, txout)| (OutPoint::new(txid, idx as u32), txout.clone()))
+        .collect::<Vec<(OutPoint, TxOut)>>();
 
     let mut matched_tweaks = 0_u32;
-    let mut spouts_found = <Vec<SpOut>>::new();
+    let mut spouts_found = Vec::<SpOut>::new();
 
-    loop {
-        let t_k = {
-            let mut eng = SharedSecretHash::engine();
-            eng.input(&ecdh_shared_secret.serialize());
-            eng.input(&matched_tweaks.to_be_bytes());
-            let hash = SharedSecretHash::from_engine(eng);
-            SecretKey::from_slice(&hash.to_byte_array())
-                .expect("computationally unreachable: only if hash value greater than curve order")
-        };
-
-        #[allow(non_snake_case)]
-        let T_k = t_k.public_key(&secp);
-
-        #[allow(non_snake_case)]
-            let P_k = spend_pk.combine(&T_k)
-                .expect("computationally unreachable: can only fail if ecdh_hash = -spend_sk (DLog of spend_pk), but ecdh_hash is the output of a hash function");
-
-        #[allow(non_snake_case)]
-        let neg_P_k = P_k.negate(&secp);
-
-        let mut i = 0;
-        let mut spouts_found_with_tweak = <Vec<SpOut>>::new();
-        while i < outputs_to_check.len() {
-            let (outpoint, pubkey, script_pubkey, amount) = &outputs_to_check[i];
-            let spout = SpOut {
-                outpoint: *outpoint,
-                tweak: t_k,
-                script_pubkey: script_pubkey.clone(),
-                amount: *amount,
-                label: None,
-            };
-            if P_k == *pubkey {
-                spouts_found_with_tweak.push(spout);
-                outputs_to_check.remove(i);
-                continue;
-            }
-
-            let pk_m = pubkey.combine(&neg_P_k)?;
-            if let Some((label_tweak, label)) = label_lookup.get(&pk_m) {
-                spouts_found_with_tweak.push(SpOut {
-                    tweak: t_k.add_tweak(label_tweak)?,
-                    label: Some(*label),
-                    ..spout
-                });
-                outputs_to_check.remove(i);
-                continue;
-            }
-
-            i += 1;
-        }
-
-        if !spouts_found_with_tweak.is_empty() {
-            spouts_found.extend(spouts_found_with_tweak);
-            matched_tweaks += 1;
-            continue;
-        }
-
-        break;
+    while let Some(spout) = find_spout_for_tweak(
+        &secp,
+        spend_pk,
+        &label_lookup,
+        &ecdh_shared_secret,
+        matched_tweaks,
+        &mut outputs_to_check,
+    ) {
+        spouts_found.push(spout);
+        matched_tweaks += 1;
     }
 
     Ok(spouts_found)
+}
+
+fn find_spout_for_tweak(
+    secp: &Secp256k1<secp256k1::All>,
+    spend_pk: PublicKey,
+    label_table: &BTreeMap<PublicKey, (Scalar, u32)>,
+    shared: &PublicKey,
+    k: u32,
+    outputs: &mut Vec<(OutPoint, TxOut)>,
+) -> Option<SpOut> {
+    let t_k = {
+        let mut eng = SharedSecretHash::engine();
+        eng.input(&shared.serialize());
+        eng.input(&k.to_be_bytes());
+        let hash = SharedSecretHash::from_engine(eng);
+        SecretKey::from_slice(&hash.to_byte_array())
+            .expect("hash > curve order is computationally unreachable")
+    };
+
+    #[allow(non_snake_case)]
+    let T_k = t_k.public_key(secp);
+
+    #[allow(non_snake_case)]
+    let P_k = spend_pk
+        .combine(&T_k)
+        .expect("hash == -spend_sk is computationally unreachable");
+
+    #[allow(non_snake_case)]
+    let neg_P_k = P_k.negate(secp);
+
+    let maybe_match = outputs
+        .iter()
+        .enumerate()
+        .find_map(|(idx, (outpoint, txout))| {
+            let xonly = XOnlyPublicKey::from_slice(&txout.script_pubkey.as_bytes()[2..]).ok()?;
+
+            [Parity::Even, Parity::Odd].into_iter().find_map(|parity| {
+                let pubkey = xonly.public_key(parity);
+
+                if pubkey == P_k {
+                    Some((
+                        idx,
+                        SpOut {
+                            outpoint: *outpoint,
+                            script_pubkey: txout.script_pubkey.clone(),
+                            amount: txout.value,
+                            tweak: t_k,
+                            label: None,
+                        },
+                    ))
+                } else {
+                    let pk_m = pubkey.combine(&neg_P_k).ok()?;
+                    if let Some((label_tweak, label)) = label_table.get(&pk_m) {
+                        Some((
+                            idx,
+                            SpOut {
+                                outpoint: *outpoint,
+                                script_pubkey: txout.script_pubkey.clone(),
+                                amount: txout.value,
+                                tweak: t_k.add_tweak(label_tweak).ok()?,
+                                label: Some(*label),
+                            },
+                        ))
+                    } else {
+                        None
+                    }
+                }
+            })
+        });
+
+    if let Some((pos, spout)) = maybe_match {
+        outputs.swap_remove(pos);
+        Some(spout)
+    } else {
+        None
+    }
 }
 
 /// Get the script pubkey for silent payments derived from the current set of scan and spend
