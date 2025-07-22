@@ -59,6 +59,20 @@ impl Scanner {
         self.scan_txouts(tx, ecdh_shared_secret)
     }
 
+    pub fn _scan_tx(
+        &self,
+        tx: &Transaction,
+        partial_secret: &PublicKey,
+    ) -> Result<Vec<SpOut>, SpReceiveError> {
+        let ecdh_shared_secret = compute_shared_secret(&self.scan_sk, partial_secret);
+        scan_txouts(
+            self.spend_pk,
+            self.label_lookup.clone(),
+            tx,
+            ecdh_shared_secret,
+        )
+    }
+
     pub fn get_spks_from_tweak(&self, tweak: &PublicKey, derivation_order: u32) -> Vec<ScriptBuf> {
         let ecdh_shared_secret = compute_shared_secret(&self.scan_sk, tweak);
 
