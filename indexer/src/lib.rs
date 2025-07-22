@@ -23,7 +23,7 @@ use bitcoin::key::Secp256k1;
 pub struct SpIndexes {
     pub by_outpoint: BTreeMap<OutPoint, SpOut>,
     pub by_script: BTreeMap<ScriptBuf, OutPoint>,
-    pub label_to_spout: BTreeSet<(Option<u32>, OutPoint)>,
+    pub by_label: BTreeSet<(Option<u32>, OutPoint)>,
     pub txid_to_shared_secret: BTreeMap<Txid, PublicKey>,
     pub label_to_tweak: BTreeMap<PublicKey, (Scalar, u32)>,
     pub num_to_label: BTreeMap<u32, PublicKey>,
@@ -55,7 +55,7 @@ impl SpIndexes {
     }
 
     pub fn get_by_label(&self, m: Option<u32>) -> impl Iterator<Item = &SpOut> {
-        self.label_to_spout
+        self.by_label
             .iter()
             .filter_map(move |&(maybe_label, outpoint)| {
                 if maybe_label == m {
@@ -96,7 +96,7 @@ impl From<SpIndexesChangeSet> for SpIndexes {
             by_outpoint: value.by_outpoint,
             by_script: value.by_script,
             txid_to_shared_secret: value.txid_to_shared_secret,
-            label_to_spout: value.label_to_spout,
+            by_label: value.by_label,
             label_to_tweak,
             num_to_label: value.num_to_label,
         }
@@ -122,7 +122,7 @@ impl From<SpIndexes> for SpIndexesChangeSet {
             by_outpoint: value.by_outpoint,
             by_script: value.by_script,
             txid_to_shared_secret: value.txid_to_shared_secret,
-            label_to_spout: value.label_to_spout,
+            by_label: value.by_label,
             label_to_tweak,
             num_to_label: value.num_to_label,
         }
@@ -134,7 +134,7 @@ impl From<SpIndexes> for SpIndexesChangeSet {
 pub struct SpIndexesChangeSet {
     pub by_outpoint: BTreeMap<OutPoint, SpOut>,
     pub by_script: BTreeMap<ScriptBuf, OutPoint>,
-    pub label_to_spout: BTreeSet<(Option<u32>, OutPoint)>,
+    pub by_label: BTreeSet<(Option<u32>, OutPoint)>,
     pub txid_to_shared_secret: BTreeMap<Txid, PublicKey>,
     pub label_to_tweak: BTreeMap<PublicKey, (SecretKey, u32)>,
     pub num_to_label: BTreeMap<u32, PublicKey>,
@@ -148,7 +148,7 @@ impl Merge for SpIndexesChangeSet {
         self.by_script.extend(other.by_script);
         self.txid_to_shared_secret
             .extend(other.txid_to_shared_secret);
-        self.label_to_spout.extend(other.label_to_spout);
+        self.by_label.extend(other.by_label);
         self.label_to_tweak.extend(other.label_to_tweak);
         self.num_to_label.extend(other.num_to_label);
     }
@@ -157,7 +157,7 @@ impl Merge for SpIndexesChangeSet {
         self.by_outpoint.is_empty()
             && self.by_script.is_empty()
             && self.txid_to_shared_secret.is_empty()
-            && self.label_to_spout.is_empty()
+            && self.by_label.is_empty()
             && self.label_to_tweak.is_empty()
             && self.num_to_label.is_empty()
     }
@@ -233,9 +233,7 @@ impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
                 .by_outpoint
                 .insert(spout.outpoint, spout.clone());
 
-            self.indexes
-                .label_to_spout
-                .insert((spout.label, spout.outpoint));
+            self.indexes.by_label.insert((spout.label, spout.outpoint));
             self.indexes
                 .by_script
                 .insert(spout.script_pubkey.clone(), spout.outpoint);
