@@ -22,7 +22,7 @@ use bitcoin::key::Secp256k1;
 #[derive(Clone, Default, Debug)]
 pub struct SpIndexes {
     pub by_outpoint: BTreeMap<OutPoint, SpOut>,
-    pub script_to_spout: BTreeMap<ScriptBuf, OutPoint>,
+    pub by_script: BTreeMap<ScriptBuf, OutPoint>,
     pub label_to_spout: BTreeSet<(Option<u32>, OutPoint)>,
     pub txid_to_shared_secret: BTreeMap<Txid, PublicKey>,
     pub label_to_tweak: BTreeMap<PublicKey, (Scalar, u32)>,
@@ -49,7 +49,7 @@ impl SpIndexes {
     }
 
     pub fn get_by_script(&self, script: &ScriptBuf) -> Option<&SpOut> {
-        self.script_to_spout
+        self.by_script
             .get(script)
             .and_then(|outpoint| self.by_outpoint.get(outpoint))
     }
@@ -94,7 +94,7 @@ impl From<SpIndexesChangeSet> for SpIndexes {
             .collect();
         Self {
             by_outpoint: value.by_outpoint,
-            script_to_spout: value.script_to_spout,
+            by_script: value.by_script,
             txid_to_shared_secret: value.txid_to_shared_secret,
             label_to_spout: value.label_to_spout,
             label_to_tweak,
@@ -120,7 +120,7 @@ impl From<SpIndexes> for SpIndexesChangeSet {
             .collect();
         Self {
             by_outpoint: value.by_outpoint,
-            script_to_spout: value.script_to_spout,
+            by_script: value.by_script,
             txid_to_shared_secret: value.txid_to_shared_secret,
             label_to_spout: value.label_to_spout,
             label_to_tweak,
@@ -133,7 +133,7 @@ impl From<SpIndexes> for SpIndexesChangeSet {
 #[must_use]
 pub struct SpIndexesChangeSet {
     pub by_outpoint: BTreeMap<OutPoint, SpOut>,
-    pub script_to_spout: BTreeMap<ScriptBuf, OutPoint>,
+    pub by_script: BTreeMap<ScriptBuf, OutPoint>,
     pub label_to_spout: BTreeSet<(Option<u32>, OutPoint)>,
     pub txid_to_shared_secret: BTreeMap<Txid, PublicKey>,
     pub label_to_tweak: BTreeMap<PublicKey, (SecretKey, u32)>,
@@ -145,7 +145,7 @@ impl Merge for SpIndexesChangeSet {
         // We use `extend` instead of `BTreeMap::append` due to performance issues with `append`.
         // Refer to https://github.com/rust-lang/rust/issues/34666#issuecomment-675658420
         self.by_outpoint.extend(other.by_outpoint);
-        self.script_to_spout.extend(other.script_to_spout);
+        self.by_script.extend(other.by_script);
         self.txid_to_shared_secret
             .extend(other.txid_to_shared_secret);
         self.label_to_spout.extend(other.label_to_spout);
@@ -155,7 +155,7 @@ impl Merge for SpIndexesChangeSet {
 
     fn is_empty(&self) -> bool {
         self.by_outpoint.is_empty()
-            && self.script_to_spout.is_empty()
+            && self.by_script.is_empty()
             && self.txid_to_shared_secret.is_empty()
             && self.label_to_spout.is_empty()
             && self.label_to_tweak.is_empty()
@@ -237,7 +237,7 @@ impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
                 .label_to_spout
                 .insert((spout.label, spout.outpoint));
             self.indexes
-                .script_to_spout
+                .by_script
                 .insert(spout.script_pubkey.clone(), spout.outpoint);
         }
 
