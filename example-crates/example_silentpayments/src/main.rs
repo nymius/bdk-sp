@@ -906,7 +906,7 @@ fn main() -> anyhow::Result<()> {
             for i in 0..psbt.inputs.len() {
                 let psbt_input = &mut psbt.inputs[i];
                 if let Some(txout) = &psbt_input.witness_utxo {
-                    if let Some(spout) = indexes.script_to_spout.get(&txout.script_pubkey) {
+                    if let Some(spout) = indexes.get_by_script(&txout.script_pubkey) {
                         let sk = spend_sk.add_tweak(&Scalar::from(spout.tweak))?;
                         let keypair = Keypair::from_secret_key(&secp, &sk);
                         let (x_only_internal, _parity) = XOnlyPublicKey::from_keypair(&keypair);

@@ -22,9 +22,9 @@ use bitcoin::key::Secp256k1;
 #[derive(Clone, Default, Debug)]
 pub struct SpIndexes {
     pub spouts: BTreeMap<OutPoint, SpOut>,
-    pub script_to_spout: BTreeMap<ScriptBuf, SpOut>,
+    pub script_to_spout: BTreeMap<ScriptBuf, OutPoint>,
+    pub label_to_spout: BTreeSet<(Option<u32>, OutPoint)>,
     pub txid_to_shared_secret: BTreeMap<Txid, PublicKey>,
-    pub label_to_spout: BTreeSet<(Option<u32>, SpOut)>,
     pub label_to_tweak: BTreeMap<PublicKey, (Scalar, u32)>,
     pub num_to_label: BTreeMap<u32, PublicKey>,
 }
@@ -46,6 +46,24 @@ impl SpIndexes {
         self.label_to_tweak.insert(label_G, (label, m));
         self.num_to_label.insert(m, label_G);
         Ok(labelled_sp_code)
+    }
+
+    pub fn get_by_script(&self, script: &ScriptBuf) -> Option<&SpOut> {
+        self.script_to_spout
+            .get(script)
+            .and_then(|outpoint| self.spouts.get(outpoint))
+    }
+
+    pub fn get_by_label(&self, m: Option<u32>) -> impl Iterator<Item = &SpOut> {
+        self.label_to_spout
+            .iter()
+            .filter_map(move |&(maybe_label, outpoint)| {
+                if maybe_label == m {
+                    self.spouts.get(&outpoint)
+                } else {
+                    None
+                }
+            })
     }
 
     pub fn get_label(&self, m: u32) -> Option<Scalar> {
@@ -115,9 +133,9 @@ impl From<SpIndexes> for SpIndexesChangeSet {
 #[must_use]
 pub struct SpIndexesChangeSet {
     pub spouts: BTreeMap<OutPoint, SpOut>,
-    pub script_to_spout: BTreeMap<ScriptBuf, SpOut>,
+    pub script_to_spout: BTreeMap<ScriptBuf, OutPoint>,
+    pub label_to_spout: BTreeSet<(Option<u32>, OutPoint)>,
     pub txid_to_shared_secret: BTreeMap<Txid, PublicKey>,
-    pub label_to_spout: BTreeSet<(Option<u32>, SpOut)>,
     pub label_to_tweak: BTreeMap<PublicKey, (SecretKey, u32)>,
     pub num_to_label: BTreeMap<u32, PublicKey>,
 }
@@ -213,10 +231,10 @@ impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
 
             self.indexes
                 .label_to_spout
-                .insert((spout.label, spout.clone()));
+                .insert((spout.label, spout.outpoint));
             self.indexes
                 .script_to_spout
-                .insert(spout.script_pubkey.clone(), spout.clone());
+                .insert(spout.script_pubkey.clone(), spout.outpoint);
         }
 
         Ok(tx_graph_changeset)
