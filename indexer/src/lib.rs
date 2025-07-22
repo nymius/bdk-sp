@@ -17,7 +17,7 @@ use bdk_sp::{
 
 use bdk_bitcoind_rpc::bitcoincore_rpc::{Client, RpcApi};
 use bitcoin::ScriptBuf;
-use bitcoin::key::{Secp256k1, TweakedPublicKey};
+use bitcoin::key::Secp256k1;
 
 #[derive(Clone, Default, Debug)]
 pub struct SpIndexes {
@@ -209,9 +209,6 @@ impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
 
         // Index spouts
         for spout in spouts {
-            let x_only_tweaked = TweakedPublicKey::dangerous_assume_tweaked(spout.xonly_pubkey);
-            let script_pubkey = ScriptBuf::new_p2tr_tweaked(x_only_tweaked);
-
             self.indexes.spouts.insert(spout.outpoint, spout.clone());
 
             self.indexes
@@ -219,7 +216,7 @@ impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
                 .insert((spout.label, spout.clone()));
             self.indexes
                 .script_to_spout
-                .insert(script_pubkey, spout.clone());
+                .insert(spout.script_pubkey.clone(), spout.clone());
         }
 
         Ok(tx_graph_changeset)
