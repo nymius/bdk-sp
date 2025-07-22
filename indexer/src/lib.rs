@@ -21,7 +21,7 @@ use bitcoin::key::Secp256k1;
 
 #[derive(Clone, Default, Debug)]
 pub struct SpIndexes {
-    pub spouts: BTreeMap<OutPoint, SpOut>,
+    pub by_outpoint: BTreeMap<OutPoint, SpOut>,
     pub script_to_spout: BTreeMap<ScriptBuf, OutPoint>,
     pub label_to_spout: BTreeSet<(Option<u32>, OutPoint)>,
     pub txid_to_shared_secret: BTreeMap<Txid, PublicKey>,
@@ -51,7 +51,7 @@ impl SpIndexes {
     pub fn get_by_script(&self, script: &ScriptBuf) -> Option<&SpOut> {
         self.script_to_spout
             .get(script)
-            .and_then(|outpoint| self.spouts.get(outpoint))
+            .and_then(|outpoint| self.by_outpoint.get(outpoint))
     }
 
     pub fn get_by_label(&self, m: Option<u32>) -> impl Iterator<Item = &SpOut> {
@@ -59,7 +59,7 @@ impl SpIndexes {
             .iter()
             .filter_map(move |&(maybe_label, outpoint)| {
                 if maybe_label == m {
-                    self.spouts.get(&outpoint)
+                    self.by_outpoint.get(&outpoint)
                 } else {
                     None
                 }
@@ -75,13 +75,13 @@ impl SpIndexes {
     }
 
     pub fn txouts_in_tx(&self, txid: Txid) -> impl DoubleEndedIterator<Item = &SpOut> {
-        self.spouts
+        self.by_outpoint
             .range(OutPoint::new(txid, u32::MIN)..=OutPoint::new(txid, u32::MAX))
             .map(|(_op, spout)| spout)
     }
 
     pub fn txout(&self, outpoint: OutPoint) -> Option<TxOut> {
-        self.spouts.get(&outpoint).map(Into::into)
+        self.by_outpoint.get(&outpoint).map(Into::into)
     }
 }
 
@@ -93,7 +93,7 @@ impl From<SpIndexesChangeSet> for SpIndexes {
             .map(|(key, (value, m))| (key, (Scalar::from(value), m)))
             .collect();
         Self {
-            spouts: value.spouts,
+            by_outpoint: value.by_outpoint,
             script_to_spout: value.script_to_spout,
             txid_to_shared_secret: value.txid_to_shared_secret,
             label_to_spout: value.label_to_spout,
@@ -119,7 +119,7 @@ impl From<SpIndexes> for SpIndexesChangeSet {
             })
             .collect();
         Self {
-            spouts: value.spouts,
+            by_outpoint: value.by_outpoint,
             script_to_spout: value.script_to_spout,
             txid_to_shared_secret: value.txid_to_shared_secret,
             label_to_spout: value.label_to_spout,
@@ -132,7 +132,7 @@ impl From<SpIndexes> for SpIndexesChangeSet {
 #[derive(Clone, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
 #[must_use]
 pub struct SpIndexesChangeSet {
-    pub spouts: BTreeMap<OutPoint, SpOut>,
+    pub by_outpoint: BTreeMap<OutPoint, SpOut>,
     pub script_to_spout: BTreeMap<ScriptBuf, OutPoint>,
     pub label_to_spout: BTreeSet<(Option<u32>, OutPoint)>,
     pub txid_to_shared_secret: BTreeMap<Txid, PublicKey>,
@@ -144,7 +144,7 @@ impl Merge for SpIndexesChangeSet {
     fn merge(&mut self, other: Self) {
         // We use `extend` instead of `BTreeMap::append` due to performance issues with `append`.
         // Refer to https://github.com/rust-lang/rust/issues/34666#issuecomment-675658420
-        self.spouts.extend(other.spouts);
+        self.by_outpoint.extend(other.by_outpoint);
         self.script_to_spout.extend(other.script_to_spout);
         self.txid_to_shared_secret
             .extend(other.txid_to_shared_secret);
@@ -154,7 +154,7 @@ impl Merge for SpIndexesChangeSet {
     }
 
     fn is_empty(&self) -> bool {
-        self.spouts.is_empty()
+        self.by_outpoint.is_empty()
             && self.script_to_spout.is_empty()
             && self.txid_to_shared_secret.is_empty()
             && self.label_to_spout.is_empty()
@@ -195,9 +195,11 @@ impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
     }
 
     pub fn spends_owned_spouts(&self, tx: &Transaction) -> bool {
-        tx.input
-            .iter()
-            .any(|input| self.indexes.spouts.contains_key(&input.previous_output))
+        tx.input.iter().any(|input| {
+            self.indexes
+                .by_outpoint
+                .contains_key(&input.previous_output)
+        })
     }
 
     pub fn index_tx(&mut self, tx: &Transaction) -> Result<tx_graph::ChangeSet<A>, SpReceiveError> {
@@ -227,7 +229,9 @@ impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
 
         // Index spouts
         for spout in spouts {
-            self.indexes.spouts.insert(spout.outpoint, spout.clone());
+            self.indexes
+                .by_outpoint
+                .insert(spout.outpoint, spout.clone());
 
             self.indexes
                 .label_to_spout

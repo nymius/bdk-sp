@@ -574,7 +574,7 @@ fn main() -> anyhow::Result<()> {
                     let synced_to = chain.tip();
                     let outpoints = sp_indexer
                         .indexes
-                        .spouts
+                        .by_outpoint
                         .clone()
                         .into_iter()
                         .map(|(x, y)| (y, x));
@@ -606,7 +606,7 @@ fn main() -> anyhow::Result<()> {
                 let synced_to = chain.tip();
                 let outpoints = sp_indexer
                     .indexes
-                    .spouts
+                    .by_outpoint
                     .clone()
                     .into_iter()
                     .map(|(x, y)| (y, x));
@@ -637,7 +637,7 @@ fn main() -> anyhow::Result<()> {
                 Ok(())
             }
 
-            let outpoints = indexes.spouts.into_iter().map(|(x, y)| (y, x));
+            let outpoints = indexes.by_outpoint.into_iter().map(|(x, y)| (y, x));
 
             let balance = graph.try_balance(chain, chain.get_chain_tip()?, outpoints, is_change)?;
 
@@ -687,7 +687,7 @@ fn main() -> anyhow::Result<()> {
                 (None, Some(address)) => address.require_network(sp_code.network)?,
                 _ => bail!("mixed silent payments not yet allowed"),
             };
-            let outpoints = indexes.spouts.clone().into_iter().map(|(x, y)| (y, x));
+            let outpoints = indexes.by_outpoint.clone().into_iter().map(|(x, y)| (y, x));
             #[allow(clippy::type_complexity)]
             let mut utxos = graph
                 .try_filter_chain_unspents(chain, chain_tip, outpoints)?
