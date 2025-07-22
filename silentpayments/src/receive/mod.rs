@@ -21,7 +21,7 @@ pub mod scan;
 pub struct SpOut {
     pub outpoint: OutPoint,
     pub tweak: SecretKey,
-    pub xonly_pubkey: XOnlyPublicKey,
+    pub script_pubkey: ScriptBuf,
     pub amount: Amount,
     pub label: Option<u32>,
 }
@@ -40,10 +40,9 @@ impl Ord for SpOut {
 
 impl From<&SpOut> for TxOut {
     fn from(spout: &SpOut) -> Self {
-        let tweaked_pubkey = TweakedPublicKey::dangerous_assume_tweaked(spout.xonly_pubkey);
         TxOut {
             value: spout.amount,
-            script_pubkey: ScriptBuf::new_p2tr_tweaked(tweaked_pubkey),
+            script_pubkey: spout.script_pubkey.clone(),
         }
     }
 }
@@ -99,11 +98,12 @@ pub fn scan_txouts(
                 (
                     OutPoint::new(txid, idx as u32),
                     xonly_pubkey.public_key(parity),
+                    txout.script_pubkey.clone(),
                     txout.value,
                 )
             })
         })
-        .collect::<Vec<(OutPoint, PublicKey, Amount)>>();
+        .collect::<Vec<(OutPoint, PublicKey, ScriptBuf, Amount)>>();
 
     let mut matched_tweaks = 0_u32;
     let mut spouts_found = <Vec<SpOut>>::new();
@@ -131,16 +131,15 @@ pub fn scan_txouts(
         let mut i = 0;
         let mut spouts_found_with_tweak = <Vec<SpOut>>::new();
         while i < outputs_to_check.len() {
-            let (outpoint, pubkey, amount) = outputs_to_check[i];
-            let (xonly_pubkey, _parity) = pubkey.x_only_public_key();
+            let (outpoint, pubkey, script_pubkey, amount) = &outputs_to_check[i];
             let spout = SpOut {
-                outpoint,
+                outpoint: *outpoint,
                 tweak: t_k,
-                xonly_pubkey,
-                amount,
+                script_pubkey: script_pubkey.clone(),
+                amount: *amount,
                 label: None,
             };
-            if P_k == pubkey {
+            if P_k == *pubkey {
                 spouts_found_with_tweak.push(spout);
                 outputs_to_check.remove(i);
                 continue;
