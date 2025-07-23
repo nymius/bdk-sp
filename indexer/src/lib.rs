@@ -148,11 +148,6 @@ impl Merge for SpIndexesChangeSet {
 pub struct SpIndexer<T, A> {
     prevout_source: T,
     pub scanner: Scanner,
-    // NOTE: Redundancy of the OutPoint here is to have a fast way to query particular SpOuts
-    // associated with a particular Outpoint.
-    // NOTE: Do not create SpIndex::spouts method which include OutPoint inside iterator because there is
-    // no reason to have the outpoint twice here (one in the tuple and another inside the SpOut)
-    // and a DoubleEndedIterator can also be obtained using the BTreeMap::values method
     pub indexes: SpIndexes,
     pub tx_graph: TxGraph<A>,
 }
