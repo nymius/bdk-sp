@@ -183,14 +183,6 @@ impl<A: bdk_chain::Anchor> SpIndexer<A> {
         }
     }
 
-    pub fn spends_owned_spouts(&self, tx: &Transaction) -> bool {
-        tx.input.iter().any(|input| {
-            self.indexes
-                .by_outpoint
-                .contains_key(&input.previous_output)
-        })
-    }
-
     pub fn is_tx_relevant(&mut self, tx: &Transaction) -> bool {
         let txid = tx.compute_txid();
         let output_matches = (0..tx.output.len() as u32)
