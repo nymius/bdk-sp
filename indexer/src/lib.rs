@@ -1,4 +1,3 @@
-pub use bdk_bitcoind_rpc;
 pub use bdk_chain;
 
 use std::collections::{BTreeMap, BTreeSet};

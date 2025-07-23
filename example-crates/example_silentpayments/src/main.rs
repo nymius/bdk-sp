@@ -41,11 +41,12 @@ use bdk_sp::{
     send::{bip32::XprivSilentPaymentSender, bip352::SpSender},
 };
 
+use bdk_bitcoind_rpc::{
+    bitcoincore_rpc::{Auth, Client, RpcApi},
+    Emitter,
+};
+
 use indexer::{
-    bdk_bitcoind_rpc::{
-        bitcoincore_rpc::{Auth, Client, RpcApi},
-        Emitter,
-    },
     bdk_chain::{
         local_chain::{self, LocalChain},
         tx_graph, BlockId, ChainOracle, ConfirmationBlockTime, FullTxOut, Merge, TxGraph,
