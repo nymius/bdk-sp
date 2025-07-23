@@ -1,23 +1,20 @@
-pub use bdk_bitcoind_rpc;
-pub use bdk_chain;
-
-use std::collections::{BTreeMap, BTreeSet};
-use std::iter::Extend;
-
+use bdk_bitcoind_rpc::bitcoincore_rpc::{Client, RpcApi};
 use bdk_chain::{Merge, TxGraph, tx_graph};
-
-use bdk_sp::encoding::SilentPaymentCode;
 use bdk_sp::{
     bitcoin::{
-        OutPoint, Transaction, TxOut, Txid,
+        OutPoint, ScriptBuf, Transaction, TxOut, Txid,
+        key::Secp256k1,
         secp256k1::{PublicKey, Scalar, SecretKey},
     },
+    encoding::SilentPaymentCode,
     receive::{SpOut, SpReceiveError, scan::Scanner},
 };
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    iter::Extend,
+};
 
-use bdk_bitcoind_rpc::bitcoincore_rpc::{Client, RpcApi};
-use bitcoin::ScriptBuf;
-use bitcoin::key::Secp256k1;
+pub use bdk_chain;
 
 #[derive(Clone, Default, Debug)]
 pub struct SpIndexes {
