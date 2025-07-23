@@ -15,7 +15,6 @@ use bdk_sp::{
     receive::{SpOut, SpReceiveError, scan::Scanner},
 };
 
-use bdk_bitcoind_rpc::bitcoincore_rpc::{Client, RpcApi};
 use bitcoin::ScriptBuf;
 use bitcoin::key::Secp256k1;
 
@@ -169,10 +168,6 @@ pub struct SpIndexer<A> {
     pub tx_graph: TxGraph<A>,
 }
 
-pub trait PrevoutSource {
-    fn get_tx_prevouts(&self, tx: &Transaction) -> Vec<TxOut>;
-}
-
 impl<A: bdk_chain::Anchor> SpIndexer<A> {
     pub fn new(
         scan_sk: SecretKey,
@@ -240,25 +235,5 @@ impl<A: bdk_chain::Anchor> SpIndexer<A> {
         }
 
         Ok(tx_graph_changeset)
-    }
-}
-
-pub struct Custom<'a>(pub &'a Client);
-
-impl PrevoutSource for Custom<'_> {
-    fn get_tx_prevouts(&self, tx: &Transaction) -> Vec<TxOut> {
-        let mut prevouts = <Vec<TxOut>>::new();
-        let outpoint_refs = tx.input.iter().map(|x| x.previous_output);
-        for OutPoint { txid, vout } in outpoint_refs {
-            let prev_tx = self
-                .0
-                .get_raw_transaction_info(&txid, None)
-                .expect("reckless")
-                .transaction()
-                .expect("reckless");
-            let prevout = prev_tx.tx_out(vout as usize).expect("reckless").clone();
-            prevouts.push(prevout);
-        }
-        prevouts
     }
 }
