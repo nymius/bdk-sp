@@ -18,7 +18,7 @@ use bdk_sp::{
 use bitcoin::ScriptBuf;
 use bitcoin::key::Secp256k1;
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct SpIndexes {
     pub by_outpoint: BTreeMap<OutPoint, SpOut>,
     pub by_script: BTreeMap<ScriptBuf, OutPoint>,
@@ -26,6 +26,119 @@ pub struct SpIndexes {
     pub txid_to_partial_secret: BTreeMap<Txid, PublicKey>,
     pub label_to_tweak: BTreeMap<PublicKey, (Scalar, u32)>,
     pub num_to_label: BTreeMap<u32, PublicKey>,
+}
+
+mod scalar_serde {
+    use super::Scalar;
+    use core::fmt;
+    use serde::de::Visitor;
+    use serde::{Deserializer, Serializer, de};
+
+    pub fn serialize<S>(s: &Scalar, ser: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        ser.serialize_bytes(&s.to_be_bytes())
+    }
+
+    pub fn deserialize<'de, D>(de: D) -> Result<Scalar, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct Bytes32Visitor;
+
+        impl<'de> Visitor<'de> for Bytes32Visitor {
+            type Value = [u8; 32];
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("exactly 32 bytes")
+            }
+
+            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                if v.len() != 32 {
+                    return Err(E::invalid_length(v.len(), &self));
+                }
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(v);
+                Ok(arr)
+            }
+        }
+
+        let bytes = de.deserialize_bytes(Bytes32Visitor)?;
+        Scalar::from_be_bytes(bytes).map_err(de::Error::custom)
+    }
+}
+
+pub mod label_map_serde {
+    use super::{PublicKey, Scalar, scalar_serde};
+    use serde::{
+        Deserialize, Serialize,
+        de::{Deserializer, MapAccess, Visitor},
+        ser::{SerializeMap, Serializer},
+    };
+    use std::{collections::BTreeMap, fmt};
+
+    pub fn serialize<S>(map: &BTreeMap<PublicKey, (Scalar, u32)>, ser: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut m = ser.serialize_map(Some(map.len()))?;
+        for (pk, (sc, n)) in map {
+            m.serialize_entry(&pk, &(ScalarBytes(*sc), *n))?;
+        }
+        m.end()
+    }
+
+    pub fn deserialize<'de, D>(de: D) -> Result<BTreeMap<PublicKey, (Scalar, u32)>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct MapVisitor;
+
+        impl<'de> Visitor<'de> for MapVisitor {
+            type Value = BTreeMap<PublicKey, (Scalar, u32)>;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a map from compressed secp256k1 public keys to (scalar, u32) tuples")
+            }
+
+            fn visit_map<A>(self, mut access: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let mut map = BTreeMap::new();
+                while let Some((pk, (sc, n))) =
+                    access.next_entry::<PublicKey, (ScalarBytes, u32)>()?
+                {
+                    map.insert(pk, (sc.0, n));
+                }
+                Ok(map)
+            }
+        }
+
+        de.deserialize_map(MapVisitor)
+    }
+
+    struct ScalarBytes(pub Scalar);
+    impl Serialize for ScalarBytes {
+        fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            scalar_serde::serialize(&self.0, ser)
+        }
+    }
+    impl<'de> Deserialize<'de> for ScalarBytes {
+        fn deserialize<D>(de: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            scalar_serde::deserialize(de).map(ScalarBytes)
+        }
+    }
 }
 
 impl SpIndexes {
