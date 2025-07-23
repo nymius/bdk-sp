@@ -163,8 +163,7 @@ impl Merge for SpIndexesChangeSet {
     }
 }
 
-pub struct SpIndexer<T, A> {
-    prevout_source: T,
+pub struct SpIndexer<A> {
     pub scanner: Scanner,
     pub indexes: SpIndexes,
     pub tx_graph: TxGraph<A>,
@@ -174,15 +173,9 @@ pub trait PrevoutSource {
     fn get_tx_prevouts(&self, tx: &Transaction) -> Vec<TxOut>;
 }
 
-impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
-    pub fn new(
-        prevout_source: T,
-        scanner: Scanner,
-        indexes: SpIndexes,
-        tx_graph: TxGraph<A>,
-    ) -> Self {
+impl<A: bdk_chain::Anchor> SpIndexer<A> {
+    pub fn new(scanner: Scanner, indexes: SpIndexes, tx_graph: TxGraph<A>) -> Self {
         Self {
-            prevout_source,
             scanner,
             indexes,
             tx_graph,
@@ -210,47 +203,7 @@ impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
         output_matches || input_matches
     }
 
-    pub fn index_tx(&mut self, tx: &Transaction) -> Result<tx_graph::ChangeSet<A>, SpReceiveError> {
-        let prevouts = self.prevout_source.get_tx_prevouts(tx);
-        let txid = tx.compute_txid();
-        let ecdh_shared_secret = self
-            .scanner
-            .get_shared_secret(tx, &prevouts)
-            .expect("infallible");
-
-        let spouts = self.scanner.scan_txouts(tx, ecdh_shared_secret)?;
-
-        let mut tx_graph_changeset = tx_graph::ChangeSet::<A>::default();
-        // Add tx and prevouts to tx_graph
-        if !spouts.is_empty() && !self.indexes.txid_to_shared_secret.contains_key(&txid) {
-            self.indexes
-                .txid_to_shared_secret
-                .insert(txid, ecdh_shared_secret);
-            tx_graph_changeset.merge(self.tx_graph.insert_tx(tx.clone()));
-            for (prevout, outpoint) in prevouts
-                .iter()
-                .zip(tx.input.iter().map(|x| x.previous_output))
-            {
-                tx_graph_changeset.merge(self.tx_graph.insert_txout(outpoint, prevout.clone()));
-            }
-        }
-
-        // Index spouts
-        for spout in spouts {
-            self.indexes
-                .by_outpoint
-                .insert(spout.outpoint, spout.clone());
-
-            self.indexes.by_label.insert((spout.label, spout.outpoint));
-            self.indexes
-                .by_script
-                .insert(spout.script_pubkey.clone(), spout.outpoint);
-        }
-
-        Ok(tx_graph_changeset)
-    }
-
-    pub fn _index_tx(
+    pub fn index_tx(
         &mut self,
         tx: &Transaction,
         partial_secret: &PublicKey,

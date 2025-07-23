@@ -51,7 +51,7 @@ use indexer::{
         tx_graph, BlockId, ChainOracle, ConfirmationBlockTime, FullTxOut, Merge, TxGraph,
         TxPosInBlock,
     },
-    Custom, SpIndexer, SpIndexes, SpIndexesChangeSet,
+    SpIndexer, SpIndexes, SpIndexesChangeSet,
 };
 
 #[allow(dead_code)]
@@ -500,18 +500,13 @@ fn main() -> anyhow::Result<()> {
             let silent_payment_code = SilentPaymentCode::try_from(silent_payment_code.as_str())?;
 
             let rpc_client = rpc_args.new_client()?;
-            let custom_client = Custom(&rpc_client);
             let scanner = Scanner::new(
                 scan_sk,
                 silent_payment_code.spend,
                 indexes.clone().label_to_tweak,
             );
-            let mut sp_indexer = SpIndexer::<_, bdk_chain::ConfirmationBlockTime>::new(
-                custom_client,
-                scanner,
-                indexes,
-                graph.clone(),
-            );
+            let mut sp_indexer =
+                SpIndexer::<bdk_chain::ConfirmationBlockTime>::new(scanner, indexes, graph.clone());
 
             let mut emitter = Emitter::new(&rpc_client, chain.tip(), 0);
             let mut db_stage = ChangeSet::default();
@@ -539,7 +534,7 @@ fn main() -> anyhow::Result<()> {
                         continue;
                     }
                     if let Some(partial_secret) = get_partial_secret(&rpc_client, tx) {
-                        let tx_graph_stage = sp_indexer._index_tx(tx, &partial_secret)?;
+                        let tx_graph_stage = sp_indexer.index_tx(tx, &partial_secret)?;
                         if sp_indexer.is_tx_relevant(tx) {
                             let txid = tx.compute_txid();
                             db_stage.tx_graph.merge(tx_graph_stage);
