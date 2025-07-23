@@ -236,6 +236,39 @@ impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
 
         Ok(tx_graph_changeset)
     }
+
+    pub fn _index_tx(
+        &mut self,
+        tx: &Transaction,
+        partial_secret: &PublicKey,
+    ) -> Result<tx_graph::ChangeSet<A>, SpReceiveError> {
+        let spouts = self.scanner._scan_tx(tx, partial_secret)?;
+
+        let txid = tx.compute_txid();
+
+        let mut tx_graph_changeset = tx_graph::ChangeSet::<A>::default();
+        // Add tx and prevouts to tx_graph
+        if !spouts.is_empty() && !self.indexes.txid_to_shared_secret.contains_key(&txid) {
+            self.indexes
+                .txid_to_shared_secret
+                .insert(txid, *partial_secret);
+            tx_graph_changeset.merge(self.tx_graph.insert_tx(tx.clone()));
+        }
+
+        // Index spouts
+        for spout in spouts {
+            self.indexes
+                .by_outpoint
+                .insert(spout.outpoint, spout.clone());
+
+            self.indexes.by_label.insert((spout.label, spout.outpoint));
+            self.indexes
+                .by_script
+                .insert(spout.script_pubkey.clone(), spout.outpoint);
+        }
+
+        Ok(tx_graph_changeset)
+    }
 }
 
 pub struct Custom<'a>(pub &'a Client);
