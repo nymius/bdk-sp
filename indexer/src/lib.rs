@@ -23,7 +23,7 @@ pub struct SpIndexes {
     pub by_outpoint: BTreeMap<OutPoint, SpOut>,
     pub by_script: BTreeMap<ScriptBuf, OutPoint>,
     pub by_label: BTreeSet<(Option<u32>, OutPoint)>,
-    pub txid_to_shared_secret: BTreeMap<Txid, PublicKey>,
+    pub txid_to_partial_secret: BTreeMap<Txid, PublicKey>,
     pub label_to_tweak: BTreeMap<PublicKey, (Scalar, u32)>,
     pub num_to_label: BTreeMap<u32, PublicKey>,
 }
@@ -94,7 +94,7 @@ impl From<SpIndexesChangeSet> for SpIndexes {
         Self {
             by_outpoint: value.by_outpoint,
             by_script: value.by_script,
-            txid_to_shared_secret: value.txid_to_shared_secret,
+            txid_to_partial_secret: value.txid_to_partial_secret,
             by_label: value.by_label,
             label_to_tweak,
             num_to_label: value.num_to_label,
@@ -120,7 +120,7 @@ impl From<SpIndexes> for SpIndexesChangeSet {
         Self {
             by_outpoint: value.by_outpoint,
             by_script: value.by_script,
-            txid_to_shared_secret: value.txid_to_shared_secret,
+            txid_to_partial_secret: value.txid_to_partial_secret,
             by_label: value.by_label,
             label_to_tweak,
             num_to_label: value.num_to_label,
@@ -134,7 +134,7 @@ pub struct SpIndexesChangeSet {
     pub by_outpoint: BTreeMap<OutPoint, SpOut>,
     pub by_script: BTreeMap<ScriptBuf, OutPoint>,
     pub by_label: BTreeSet<(Option<u32>, OutPoint)>,
-    pub txid_to_shared_secret: BTreeMap<Txid, PublicKey>,
+    pub txid_to_partial_secret: BTreeMap<Txid, PublicKey>,
     pub label_to_tweak: BTreeMap<PublicKey, (SecretKey, u32)>,
     pub num_to_label: BTreeMap<u32, PublicKey>,
 }
@@ -145,8 +145,8 @@ impl Merge for SpIndexesChangeSet {
         // Refer to https://github.com/rust-lang/rust/issues/34666#issuecomment-675658420
         self.by_outpoint.extend(other.by_outpoint);
         self.by_script.extend(other.by_script);
-        self.txid_to_shared_secret
-            .extend(other.txid_to_shared_secret);
+        self.txid_to_partial_secret
+            .extend(other.txid_to_partial_secret);
         self.by_label.extend(other.by_label);
         self.label_to_tweak.extend(other.label_to_tweak);
         self.num_to_label.extend(other.num_to_label);
@@ -155,7 +155,7 @@ impl Merge for SpIndexesChangeSet {
     fn is_empty(&self) -> bool {
         self.by_outpoint.is_empty()
             && self.by_script.is_empty()
-            && self.txid_to_shared_secret.is_empty()
+            && self.txid_to_partial_secret.is_empty()
             && self.by_label.is_empty()
             && self.label_to_tweak.is_empty()
             && self.num_to_label.is_empty()
@@ -207,9 +207,9 @@ impl<A: bdk_chain::Anchor> SpIndexer<A> {
 
         let mut tx_graph_changeset = tx_graph::ChangeSet::<A>::default();
         // Add tx and prevouts to tx_graph
-        if !spouts.is_empty() && !self.indexes.txid_to_shared_secret.contains_key(&txid) {
+        if !spouts.is_empty() && !self.indexes.txid_to_partial_secret.contains_key(&txid) {
             self.indexes
-                .txid_to_shared_secret
+                .txid_to_partial_secret
                 .insert(txid, *partial_secret);
             tx_graph_changeset.merge(self.tx_graph.insert_tx(tx.clone()));
         }
