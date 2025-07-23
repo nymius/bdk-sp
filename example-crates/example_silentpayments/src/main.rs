@@ -538,18 +538,20 @@ fn main() -> anyhow::Result<()> {
                     if !tx.output.iter().any(|x| x.script_pubkey.is_p2tr()) {
                         continue;
                     }
-                    let tx_graph_stage = sp_indexer.index_tx(tx)?;
-                    if !tx_graph_stage.is_empty() || sp_indexer.spends_owned_spouts(tx) {
-                        let txid = tx.compute_txid();
-                        db_stage.tx_graph.merge(tx_graph_stage);
-                        let anchor = TxPosInBlock {
-                            block,
-                            block_id,
-                            tx_pos,
+                    if let Some(partial_secret) = get_partial_secret(&rpc_client, tx) {
+                        let tx_graph_stage = sp_indexer._index_tx(tx, &partial_secret)?;
+                        if sp_indexer.is_tx_relevant(tx) {
+                            let txid = tx.compute_txid();
+                            db_stage.tx_graph.merge(tx_graph_stage);
+                            let anchor = TxPosInBlock {
+                                block,
+                                block_id,
+                                tx_pos,
+                            }
+                            .into();
+                            db_stage.tx_graph.merge(graph.insert_tx(tx.clone()));
+                            db_stage.tx_graph.merge(graph.insert_anchor(txid, anchor));
                         }
-                        .into();
-                        db_stage.tx_graph.merge(graph.insert_tx(tx.clone()));
-                        db_stage.tx_graph.merge(graph.insert_anchor(txid, anchor));
                     }
                 }
 
