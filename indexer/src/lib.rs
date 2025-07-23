@@ -197,6 +197,19 @@ impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
         })
     }
 
+    pub fn is_tx_relevant(&mut self, tx: &Transaction) -> bool {
+        let txid = tx.compute_txid();
+        let output_matches = (0..tx.output.len() as u32)
+            .map(|vout| OutPoint::new(txid, vout))
+            .any(|outpoint| self.indexes.by_outpoint.contains_key(&outpoint));
+        let input_matches = tx.input.iter().any(|input| {
+            self.indexes
+                .by_outpoint
+                .contains_key(&input.previous_output)
+        });
+        output_matches || input_matches
+    }
+
     pub fn index_tx(&mut self, tx: &Transaction) -> Result<tx_graph::ChangeSet<A>, SpReceiveError> {
         let prevouts = self.prevout_source.get_tx_prevouts(tx);
         let txid = tx.compute_txid();
