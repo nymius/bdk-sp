@@ -18,7 +18,7 @@ use bdk_sp::{
 use bitcoin::ScriptBuf;
 use bitcoin::key::Secp256k1;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct SpIndexes {
     pub by_outpoint: BTreeMap<OutPoint, SpOut>,
     pub by_script: BTreeMap<ScriptBuf, OutPoint>,
@@ -199,17 +199,12 @@ impl SpIndexes {
 
 impl From<SpIndexesChangeSet> for SpIndexes {
     fn from(value: SpIndexesChangeSet) -> Self {
-        let label_to_tweak = value
-            .label_to_tweak
-            .into_iter()
-            .map(|(key, (value, m))| (key, (Scalar::from(value), m)))
-            .collect();
         Self {
             by_outpoint: value.by_outpoint,
             by_script: value.by_script,
             txid_to_partial_secret: value.txid_to_partial_secret,
             by_label: value.by_label,
-            label_to_tweak,
+            label_to_tweak: value.label_to_tweak,
             num_to_label: value.num_to_label,
         }
     }
@@ -217,25 +212,12 @@ impl From<SpIndexesChangeSet> for SpIndexes {
 
 impl From<SpIndexes> for SpIndexesChangeSet {
     fn from(value: SpIndexes) -> Self {
-        let label_to_tweak = value
-            .label_to_tweak
-            .into_iter()
-            .map(|(key, (value, m))| {
-                (
-                    key,
-                    (
-                        SecretKey::from_slice(&value.to_be_bytes()).expect("infallible"),
-                        m,
-                    ),
-                )
-            })
-            .collect();
         Self {
             by_outpoint: value.by_outpoint,
             by_script: value.by_script,
             txid_to_partial_secret: value.txid_to_partial_secret,
             by_label: value.by_label,
-            label_to_tweak,
+            label_to_tweak: value.label_to_tweak,
             num_to_label: value.num_to_label,
         }
     }
@@ -248,7 +230,8 @@ pub struct SpIndexesChangeSet {
     pub by_script: BTreeMap<ScriptBuf, OutPoint>,
     pub by_label: BTreeSet<(Option<u32>, OutPoint)>,
     pub txid_to_partial_secret: BTreeMap<Txid, PublicKey>,
-    pub label_to_tweak: BTreeMap<PublicKey, (SecretKey, u32)>,
+    #[serde(with = "label_map_serde")]
+    pub label_to_tweak: BTreeMap<PublicKey, (Scalar, u32)>,
     pub num_to_label: BTreeMap<u32, PublicKey>,
 }
 
