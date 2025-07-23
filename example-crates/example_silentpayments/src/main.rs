@@ -37,13 +37,13 @@ use bdk_sp::{
         Transaction, TxIn, TxOut, XOnlyPublicKey,
     },
     encoding::SilentPaymentCode,
-    receive::{scan::Scanner, SpOut},
+    receive::{compute_tweak_data, scan::Scanner, SpOut},
     send::{bip32::XprivSilentPaymentSender, bip352::SpSender},
 };
 
 use indexer::{
     bdk_bitcoind_rpc::{
-        bitcoincore_rpc::{Auth, Client},
+        bitcoincore_rpc::{Auth, Client, RpcApi},
         Emitter,
     },
     bdk_chain::{
@@ -1122,4 +1122,22 @@ fn get_sp_code_from_descriptors(
     } else {
         bail!("Silent payment descriptors should be definitive (non derivable).")
     }
+}
+
+#[allow(unused)]
+fn get_partial_secret(
+    client: &impl RpcApi,
+    tx: &Transaction,
+) -> Option<bitcoin::secp256k1::PublicKey> {
+    let mut prevouts = <Vec<TxOut>>::new();
+    let outpoint_refs = tx.input.iter().map(|x| x.previous_output);
+    for OutPoint { txid, vout } in outpoint_refs {
+        let prev_tx = client
+            .get_raw_transaction_info(&txid, None)
+            .ok()
+            .and_then(|tx| tx.transaction().ok())?;
+        let prevout = prev_tx.tx_out(vout as usize).ok()?.clone();
+        prevouts.push(prevout);
+    }
+    compute_tweak_data(tx, &prevouts).ok()
 }
