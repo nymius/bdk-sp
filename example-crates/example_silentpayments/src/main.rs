@@ -37,7 +37,7 @@ use bdk_sp::{
         Transaction, TxIn, TxOut, XOnlyPublicKey,
     },
     encoding::SilentPaymentCode,
-    receive::{compute_tweak_data, scan::Scanner, SpOut},
+    receive::{compute_tweak_data, SpOut},
     send::{bip32::XprivSilentPaymentSender, bip352::SpSender},
 };
 
@@ -500,13 +500,12 @@ fn main() -> anyhow::Result<()> {
             let silent_payment_code = SilentPaymentCode::try_from(silent_payment_code.as_str())?;
 
             let rpc_client = rpc_args.new_client()?;
-            let scanner = Scanner::new(
+            let mut sp_indexer = SpIndexer::<bdk_chain::ConfirmationBlockTime>::new(
                 scan_sk,
                 silent_payment_code.spend,
-                indexes.clone().label_to_tweak,
+                indexes,
+                graph.clone(),
             );
-            let mut sp_indexer =
-                SpIndexer::<bdk_chain::ConfirmationBlockTime>::new(scanner, indexes, graph.clone());
 
             let mut emitter = Emitter::new(&rpc_client, chain.tip(), 0);
             let mut db_stage = ChangeSet::default();

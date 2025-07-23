@@ -164,7 +164,7 @@ impl Merge for SpIndexesChangeSet {
 }
 
 pub struct SpIndexer<A> {
-    pub scanner: Scanner,
+    scanner: Scanner,
     pub indexes: SpIndexes,
     pub tx_graph: TxGraph<A>,
 }
@@ -174,7 +174,13 @@ pub trait PrevoutSource {
 }
 
 impl<A: bdk_chain::Anchor> SpIndexer<A> {
-    pub fn new(scanner: Scanner, indexes: SpIndexes, tx_graph: TxGraph<A>) -> Self {
+    pub fn new(
+        scan_sk: SecretKey,
+        spend_pk: PublicKey,
+        indexes: SpIndexes,
+        tx_graph: TxGraph<A>,
+    ) -> Self {
+        let scanner = Scanner::new(scan_sk, spend_pk, indexes.clone().label_to_tweak);
         Self {
             scanner,
             indexes,
