@@ -80,7 +80,7 @@ pub fn extract_pubkey(txin: TxIn, script_pubkey: &ScriptBuf) -> Option<(SpInputs
 
 pub fn scan_txouts(
     spend_pk: PublicKey,
-    label_lookup: BTreeMap<PublicKey, (Scalar, u32)>,
+    label_lookup: &BTreeMap<PublicKey, (Scalar, u32)>,
     tx: &Transaction,
     ecdh_shared_secret: PublicKey,
 ) -> Result<Vec<SpOut>, SpReceiveError> {
@@ -101,7 +101,7 @@ pub fn scan_txouts(
     while let Some(spout) = find_spout_for_tweak(
         &secp,
         spend_pk,
-        &label_lookup,
+        label_lookup,
         &ecdh_shared_secret,
         matched_tweaks,
         &mut outputs_to_check,
