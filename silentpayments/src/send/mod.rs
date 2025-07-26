@@ -1,11 +1,10 @@
 use crate::{
     compute_shared_secret,
     encoding::SilentPaymentCode,
-    hashes::{InputsHash, SharedSecretHash},
+    hashes::{get_input_hash, get_shared_secret},
     send::error::SpSendError,
 };
 use bitcoin::{
-    hashes::{Hash, HashEngine},
     key::{Parity, Secp256k1},
     secp256k1::{PublicKey, Scalar, SecretKey},
     ScriptBuf, XOnlyPublicKey,
@@ -56,14 +55,7 @@ pub fn create_silentpayment_partial_secret(
     #[allow(non_snake_case)]
     let A_sum = a_sum.public_key(&secp);
 
-    let input_hash = {
-        let mut eng = InputsHash::engine();
-        eng.input(smallest_outpoint_bytes);
-        eng.input(&A_sum.serialize());
-        let hash = InputsHash::from_engine(eng);
-        // NOTE: Why big endian bytes??? Doesn't matter. Look at: https://github.com/rust-bitcoin/rust-bitcoin/issues/1896
-        Scalar::from_be_bytes(hash.to_byte_array()).expect("hash value greater than curve order")
-    };
+    let input_hash = get_input_hash(smallest_outpoint_bytes, &A_sum);
 
     Ok(a_sum
         .mul_tweak(&input_hash)
@@ -93,12 +85,7 @@ pub fn create_silentpayment_scriptpubkeys(
 
         #[allow(non_snake_case)]
         let T_k = {
-            let mut eng = SharedSecretHash::engine();
-            eng.input(&shared_secret.serialize());
-            eng.input(&k.to_be_bytes());
-            let hash = SharedSecretHash::from_engine(eng);
-            let t_k = SecretKey::from_slice(&hash.to_byte_array())
-                .expect("computationally unreachable: only if hash value greater than curve order");
+            let t_k = get_shared_secret(shared_secret, k);
             t_k.public_key(&secp)
         };
 

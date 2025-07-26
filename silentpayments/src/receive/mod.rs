@@ -1,12 +1,11 @@
 pub use self::error::SpReceiveError;
 use crate::{
-    hashes::{InputsHash, SharedSecretHash},
+    hashes::{get_input_hash, get_shared_secret},
     tag_txin, LexMin, SpInputs,
 };
 
 use bitcoin::{
     self,
-    hashes::{Hash, HashEngine},
     key::{Parity, Secp256k1, TweakedPublicKey},
     secp256k1::{self, PublicKey, Scalar, SecretKey},
     Amount, OutPoint, PubkeyHash, ScriptBuf, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
@@ -137,14 +136,7 @@ fn find_spout_for_tweak(
     k: u32,
     outputs: &mut Vec<(OutPoint, TxOut)>,
 ) -> Option<SpOut> {
-    let t_k = {
-        let mut eng = SharedSecretHash::engine();
-        eng.input(&shared.serialize());
-        eng.input(&k.to_be_bytes());
-        let hash = SharedSecretHash::from_engine(eng);
-        SecretKey::from_slice(&hash.to_byte_array())
-            .expect("hash > curve order is computationally unreachable")
-    };
+    let t_k = get_shared_secret(*shared, k);
 
     #[allow(non_snake_case)]
     let T_k = t_k.public_key(secp);
@@ -223,16 +215,7 @@ pub fn get_silentpayment_script_pubkey(
 ) -> ScriptBuf {
     let secp = Secp256k1::new();
 
-    let t_k = {
-        let mut eng = SharedSecretHash::engine();
-        eng.input(&ecdh_shared_secret.serialize());
-        // Just produce spks for the first possible
-        // silent payment in a tx
-        eng.input(&derivation_order.to_be_bytes());
-        let hash = SharedSecretHash::from_engine(eng);
-        SecretKey::from_slice(&hash.to_byte_array())
-            .expect("computationally unreachable: only if hash value greater than curve order")
-    };
+    let t_k = get_shared_secret(*ecdh_shared_secret, derivation_order);
 
     #[allow(non_snake_case)]
     let T_k = t_k.public_key(&secp);
@@ -278,14 +261,7 @@ pub fn compute_tweak_data(
     // themselves
     let A_sum = PublicKey::combine_keys(&input_pubkey_refs)?;
 
-    let input_hash = {
-        let mut eng = InputsHash::engine();
-        eng.input(&lex_min.bytes()?);
-        eng.input(&A_sum.serialize());
-        let hash = InputsHash::from_engine(eng);
-        // NOTE: Why big endian bytes??? Doesn't matter. Look at: https://github.com/rust-bitcoin/rust-bitcoin/issues/1896
-        Scalar::from_be_bytes(hash.to_byte_array()).expect("hash value greater than curve order")
-    };
+    let input_hash = get_input_hash(&lex_min.bytes()?, &A_sum);
 
     Ok(A_sum.mul_tweak(&secp, &input_hash)?)
 }
