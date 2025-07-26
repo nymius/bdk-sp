@@ -16,7 +16,7 @@
 /// - `tsp` for Testnet/Signet
 /// - `sprt` for Regtest
 pub use self::error::{ParseError, UnknownHrpError, VersionError};
-use crate::hashes::LabelHash;
+use crate::hashes::get_label_tweak;
 use bitcoin::{
     bech32::{
         primitives::{
@@ -26,7 +26,7 @@ use bitcoin::{
         },
         Fe32, Hrp,
     },
-    hashes::{sha256, Hash, HashEngine},
+    hashes::{sha256, Hash},
     key::{Secp256k1, TweakedPublicKey},
     secp256k1::{PublicKey, Scalar, SecretKey},
     Network, ScriptBuf,
@@ -127,12 +127,7 @@ impl SilentPaymentCode {
     /// // The label is a deterministic scalar derived from the scan key and the numeric label
     /// ```
     pub fn get_label(scan_sk: SecretKey, m: u32) -> Scalar {
-        let mut eng = LabelHash::engine();
-        eng.input(&scan_sk.secret_bytes());
-        eng.input(&m.to_be_bytes());
-        let label = LabelHash::from_engine(eng);
-        // This is statistically extremely unlikely to panic.
-        Scalar::from_be_bytes(label.to_byte_array()).expect("hash value greater than curve order")
+        get_label_tweak(scan_sk, m)
     }
 
     /// Adds a label to the spend key of this silent payment code.
