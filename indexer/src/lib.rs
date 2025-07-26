@@ -8,12 +8,108 @@ use bdk_sp::{
     encoding::SilentPaymentCode,
     receive::{SpOut, SpReceiveError, scan::Scanner},
 };
+use serde::{
+    Deserialize, Serialize,
+    de::{self, Deserializer, SeqAccess, Visitor},
+    ser::{SerializeTuple, Serializer},
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
+    fmt,
     iter::Extend,
 };
 
 pub use bdk_chain;
+
+#[allow(unused)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq)]
+pub struct Label {
+    num: u32,
+    tweak: Scalar,
+    point: PublicKey,
+}
+
+impl From<(&PublicKey, &(Scalar, u32))> for Label {
+    fn from(triple: (&PublicKey, &(Scalar, u32))) -> Self {
+        let (point, &(tweak, num)) = triple;
+        Self {
+            num,
+            tweak,
+            point: *point,
+        }
+    }
+}
+
+impl Serialize for Label {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Serialize as a 3-tuple: [u32, scalar_bytes, pubkey_bytes]
+        let mut tup = serializer.serialize_tuple(3)?;
+        tup.serialize_element(&self.num)?;
+        tup.serialize_element(&ScalarBytes(self.tweak))?;
+        tup.serialize_element(&self.point)?;
+        tup.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Label {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct LabelVisitor;
+
+        impl<'de> Visitor<'de> for LabelVisitor {
+            type Value = Label;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a tuple of (u32, scalar, public_key)")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let num = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+
+                let tweak = seq
+                    .next_element::<ScalarBytes>()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?
+                    .0;
+
+                let point = seq
+                    .next_element::<PublicKey>()?
+                    .ok_or_else(|| de::Error::invalid_length(2, &self))?;
+
+                Ok(Label { num, tweak, point })
+            }
+        }
+
+        deserializer.deserialize_tuple(3, LabelVisitor)
+    }
+}
+
+struct ScalarBytes(pub Scalar);
+impl Serialize for ScalarBytes {
+    fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        scalar_serde::serialize(&self.0, ser)
+    }
+}
+impl<'de> Deserialize<'de> for ScalarBytes {
+    fn deserialize<D>(de: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        scalar_serde::deserialize(de).map(ScalarBytes)
+    }
+}
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SpIndexes {
@@ -70,9 +166,8 @@ mod scalar_serde {
 }
 
 pub mod label_map_serde {
-    use super::{PublicKey, Scalar, scalar_serde};
+    use super::{PublicKey, Scalar, ScalarBytes};
     use serde::{
-        Deserialize, Serialize,
         de::{Deserializer, MapAccess, Visitor},
         ser::{SerializeMap, Serializer},
     };
@@ -117,24 +212,6 @@ pub mod label_map_serde {
         }
 
         de.deserialize_map(MapVisitor)
-    }
-
-    struct ScalarBytes(pub Scalar);
-    impl Serialize for ScalarBytes {
-        fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-        {
-            scalar_serde::serialize(&self.0, ser)
-        }
-    }
-    impl<'de> Deserialize<'de> for ScalarBytes {
-        fn deserialize<D>(de: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            scalar_serde::deserialize(de).map(ScalarBytes)
-        }
     }
 }
 
