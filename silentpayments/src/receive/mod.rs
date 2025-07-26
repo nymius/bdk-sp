@@ -18,6 +18,13 @@ pub mod scan;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct SpMeta {
+    pub tweak: SecretKey,
+    pub label: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct SpOut {
     pub outpoint: OutPoint,
     pub tweak: SecretKey,
@@ -43,6 +50,15 @@ impl From<&SpOut> for TxOut {
         TxOut {
             value: spout.amount,
             script_pubkey: spout.script_pubkey.clone(),
+        }
+    }
+}
+
+impl From<&SpOut> for SpMeta {
+    fn from(spout: &SpOut) -> Self {
+        SpMeta {
+            tweak: spout.tweak,
+            label: spout.label,
         }
     }
 }
