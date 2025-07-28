@@ -346,6 +346,15 @@ where
 }
 
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize, serde::Serialize),
+    serde(bound(
+        deserialize = "A: Ord + serde::Deserialize<'de>",
+        serialize = "A: Ord + serde::Serialize"
+    ))
+)]
+#[must_use]
 pub struct ChangeSet<A> {
     pub scan_sk: Option<SecretKey>,
     pub spend_pk: Option<PublicKey>,
