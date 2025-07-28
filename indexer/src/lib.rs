@@ -2,12 +2,12 @@ use bdk_bitcoind_rpc::bitcoincore_rpc::{Client, RpcApi};
 use bdk_chain::{Merge, TxGraph, tx_graph};
 use bdk_sp::{
     bitcoin::{
-        OutPoint, ScriptBuf, Transaction, TxOut, Txid,
+        OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
         key::Secp256k1,
         secp256k1::{PublicKey, Scalar, SecretKey},
     },
     encoding::SilentPaymentCode,
-    receive::{SpOut, SpReceiveError, scan::Scanner},
+    receive::{SpMeta, SpOut, SpReceiveError, scan::Scanner},
 };
 use serde::{
     Deserialize, Serialize,
@@ -15,12 +15,82 @@ use serde::{
     ser::{SerializeTuple, Serializer},
 };
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt,
     iter::Extend,
 };
 
 pub use bdk_chain;
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SpIndex {
+    pub num_to_label: HashMap<u32, PublicKey>,
+    pub by_script: HashMap<ScriptBuf, OutPoint>,
+    pub by_label: HashSet<(Option<u32>, OutPoint)>,
+    pub by_shared_secret: BTreeMap<OutPoint, SecretKey>,
+    pub txid_to_partial_secret: BTreeMap<Txid, PublicKey>,
+    pub label_lookup: BTreeMap<PublicKey, (Scalar, u32)>,
+}
+
+impl SpIndex {
+    pub fn index_label(&mut self, label: &Label) {
+        let Label { num, tweak, point } = label;
+        self.label_lookup.insert(*point, (*tweak, *num));
+        self.num_to_label.insert(*num, *point);
+    }
+
+    pub fn index_partial_secret(&mut self, txid: Txid, partial_secret: PublicKey) {
+        self.txid_to_partial_secret.insert(txid, partial_secret);
+    }
+
+    pub fn index_spout(&mut self, outpoint: OutPoint, spout: SpOut) {
+        let sp_meta = SpMeta::from(&spout);
+        let txout: TxOut = TxOut::from(&spout);
+        self.by_shared_secret.insert(outpoint, spout.tweak);
+        self.by_script.insert(txout.script_pubkey, outpoint);
+        self.by_label.insert((sp_meta.label, outpoint));
+    }
+
+    pub fn by_xonly(&self) -> impl Iterator<Item = (XOnlyPublicKey, &OutPoint)> {
+        self.by_script.iter().map(|(script_pubkey, outpoint)| {
+            let xonly =
+                XOnlyPublicKey::from_slice(&script_pubkey.as_bytes()[2..]).expect("p2tr script");
+            (xonly, outpoint)
+        })
+    }
+
+    pub fn get_by_script(&self, script: &ScriptBuf) -> Option<&SecretKey> {
+        self.by_script
+            .get(script)
+            .and_then(|outpoint| self.by_shared_secret.get(outpoint))
+    }
+
+    pub fn get_by_label(&self, m: Option<u32>) -> impl Iterator<Item = &SecretKey> {
+        self.by_label
+            .iter()
+            .filter_map(move |&(maybe_label, outpoint)| {
+                if maybe_label == m {
+                    self.by_shared_secret.get(&outpoint)
+                } else {
+                    None
+                }
+            })
+    }
+
+    pub fn txouts_in_tx(&self, txid: Txid) -> impl DoubleEndedIterator<Item = &SecretKey> {
+        self.by_shared_secret
+            .range(OutPoint::new(txid, u32::MIN)..=OutPoint::new(txid, u32::MAX))
+            .map(|(_op, spout)| spout)
+    }
+
+    pub fn get_label(&self, m: u32) -> Option<Scalar> {
+        if let Some(label_pk) = self.num_to_label.get(&m) {
+            self.label_lookup.get(label_pk).map(|x| x.0)
+        } else {
+            None
+        }
+    }
+}
 
 /// Represents a specific label used to tweak a Silent Payments address.
 ///
