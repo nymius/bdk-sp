@@ -23,6 +23,76 @@ pub use bdk_chain;
 pub mod indexes;
 
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize, serde::Serialize),
+    serde(bound(
+        deserialize = "A: Ord + serde::Deserialize<'de>",
+        serialize = "A: Ord + serde::Serialize"
+    ))
+)]
+#[must_use]
+pub struct ChangeSet<A> {
+    pub scan_sk: Option<SecretKey>,
+    pub spend_pk: Option<PublicKey>,
+    pub txid_to_partial_secret: BTreeMap<Txid, PublicKey>,
+    pub label_lookup: BTreeSet<Label>,
+    pub graph: tx_graph::ChangeSet<A>,
+}
+
+impl<A> Default for ChangeSet<A> {
+    fn default() -> Self {
+        Self {
+            scan_sk: None,
+            spend_pk: None,
+            txid_to_partial_secret: BTreeMap::default(),
+            label_lookup: BTreeSet::default(),
+            graph: Default::default(),
+        }
+    }
+}
+
+impl<A> From<tx_graph::ChangeSet<A>> for ChangeSet<A> {
+    fn from(graph: tx_graph::ChangeSet<A>) -> Self {
+        Self {
+            graph,
+            ..Default::default()
+        }
+    }
+}
+
+impl<A: Ord> Merge for ChangeSet<A> {
+    fn merge(&mut self, other: Self) {
+        if other.scan_sk.is_some() {
+            debug_assert!(
+                self.scan_sk.is_none() || self.scan_sk == other.scan_sk,
+                "scan secret key must never change"
+            );
+            self.scan_sk = other.scan_sk;
+        }
+        if other.spend_pk.is_some() {
+            debug_assert!(
+                self.spend_pk.is_none() || self.spend_pk == other.spend_pk,
+                "spend public key must never change"
+            );
+            self.spend_pk = other.spend_pk;
+        }
+        // We use `extend` instead of `BTreeMap::append` due to performance issues with `append`.
+        // Refer to https://github.com/rust-lang/rust/issues/34666#issuecomment-675658420
+        self.txid_to_partial_secret
+            .extend(other.txid_to_partial_secret);
+        self.label_lookup.extend(other.label_lookup);
+        self.graph.merge(other.graph);
+    }
+
+    fn is_empty(&self) -> bool {
+        self.txid_to_partial_secret.is_empty()
+            && self.label_lookup.is_empty()
+            && self.graph.is_empty()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct SpPub {
     spend_pk: PublicKey,
     scan_sk: SecretKey,
