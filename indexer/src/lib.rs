@@ -1,16 +1,17 @@
-use bdk_chain::{Merge, TxGraph, tx_graph};
+use bdk_chain::{Anchor, BlockId, Merge, TxGraph, TxPosInBlock, tx_graph};
 use bdk_sp::{
     bitcoin::{
-        OutPoint, ScriptBuf, Transaction, TxOut, Txid,
+        Block, Network, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
         key::{
             Secp256k1,
             constants::{GENERATOR_X, GENERATOR_Y},
         },
         secp256k1::{PublicKey, Scalar, SecretKey},
     },
+    compute_shared_secret,
     encoding::SilentPaymentCode,
     hashes::get_label_tweak,
-    receive::{SpMeta, SpOut, SpReceiveError, scan::Scanner},
+    receive::{SpMeta, SpOut, SpReceiveError, scan::Scanner, scan_txouts},
 };
 use serde::{
     Deserialize, Serialize,
@@ -21,9 +22,328 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt,
     iter::Extend,
+    sync::Arc,
 };
 
 pub use bdk_chain;
+
+pub struct SpIndexerV2<A> {
+    sp_pub: SpPub,
+    index: SpIndex,
+    graph: TxGraph<A>,
+}
+
+impl<A: bdk_chain::Anchor> TryFrom<ChangeSet<A>> for SpIndexerV2<A> {
+    type Error = ();
+    fn try_from(value: ChangeSet<A>) -> Result<Self, Self::Error> {
+        let stage @ ChangeSet {
+            scan_sk, spend_pk, ..
+        } = value;
+        match (scan_sk, spend_pk) {
+            (Some(sk), Some(pk)) => {
+                let mut indexer = SpIndexerV2::new(pk, sk, SpIndex::default());
+                let _ = indexer.apply_changeset(stage);
+                Ok(indexer)
+            }
+            _ => Err(()),
+        }
+    }
+}
+
+impl<A: bdk_chain::Anchor> SpIndexerV2<A> {
+    pub fn new(spend_pk: PublicKey, scan_sk: SecretKey, index: SpIndex) -> Self {
+        Self {
+            sp_pub: SpPub::new(spend_pk, scan_sk),
+            index,
+            graph: TxGraph::default(),
+        }
+    }
+
+    pub fn add_label(&mut self, num: u32) -> Option<Label> {
+        if let Ok(label) = self.sp_pub.create_label(num) {
+            self.index.index_label(&label);
+            Some(label)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_address(&self, network: Network) -> SilentPaymentCode {
+        let secp = Secp256k1::new();
+        let scan_pk = self.sp_pub.scan_sk.public_key(&secp);
+        SilentPaymentCode::new_v0(self.sp_pub.spend_pk, scan_pk, network)
+    }
+
+    pub fn get_labeled_address(&mut self, num: u32, network: Network) -> Option<SilentPaymentCode> {
+        let maybe_label_tweak = self
+            .index
+            .get_label(num)
+            .or(self.add_label(num).map(|label| label.tweak));
+        let sp_code = self.get_address(network);
+        if let Some(label_tweak) = maybe_label_tweak {
+            sp_code.add_label(label_tweak).ok()
+        } else {
+            None
+        }
+    }
+
+    pub fn scan_sk(&self) -> &SecretKey {
+        &self.sp_pub.scan_sk
+    }
+
+    pub fn spend_pk(&self) -> &PublicKey {
+        &self.sp_pub.spend_pk
+    }
+
+    pub fn graph(&self) -> &TxGraph<A> {
+        &self.graph
+    }
+
+    pub fn index(&self) -> &SpIndex {
+        &self.index
+    }
+
+    #[allow(unused)]
+    fn apply_changeset(&mut self, changeset: ChangeSet<A>) -> ChangeSet<A> {
+        let mut initial_changeset = self.initial_changeset();
+        if initial_changeset.spend_pk == changeset.spend_pk
+            && initial_changeset.scan_sk == changeset.scan_sk
+        {
+            self.graph.apply_changeset(changeset.graph);
+            for (txid, partial_secret) in changeset.txid_to_partial_secret.iter() {
+                if let Some(tx) = self.graph.get_tx(*txid) {
+                    initial_changeset.merge(self.index_tx(tx.as_ref(), partial_secret));
+                }
+            }
+        }
+        initial_changeset
+    }
+
+    /// Scans a transaction for relevant outpoints, which are stored and indexed internally.
+    pub fn index_tx(&mut self, tx: &Transaction, partial_secret: &PublicKey) -> ChangeSet<A> {
+        let mut changeset = ChangeSet::default();
+        match self.scan_tx(tx, partial_secret) {
+            Ok(spouts) if !spouts.is_empty() => {
+                let txid = tx.compute_txid();
+                self.index.index_partial_secret(txid, *partial_secret);
+                for spout in spouts {
+                    self.index.index_spout(spout.outpoint, spout);
+                }
+                changeset.txid_to_partial_secret = self.index.txid_to_partial_secret.clone();
+                changeset.label_lookup = self.index.label_lookup.iter().map(Into::into).collect();
+                changeset
+            }
+            _ => changeset,
+        }
+    }
+
+    #[allow(unused)]
+    pub fn initial_changeset(&self) -> ChangeSet<A> {
+        ChangeSet {
+            scan_sk: Some(self.sp_pub.scan_sk),
+            spend_pk: Some(self.sp_pub.spend_pk),
+            txid_to_partial_secret: self.index.txid_to_partial_secret.clone(),
+            label_lookup: self.index.label_lookup.iter().map(Into::into).collect(),
+            graph: self.graph.initial_changeset(),
+        }
+    }
+
+    fn is_tx_relevant(&self, tx: &Transaction) -> bool {
+        let txid = tx.compute_txid();
+        let output_matches = (0..tx.output.len() as u32)
+            .map(|vout| OutPoint::new(txid, vout))
+            .any(|outpoint| self.index.by_shared_secret.contains_key(&outpoint));
+        let input_matches = tx.input.iter().any(|input| {
+            self.index
+                .by_shared_secret
+                .contains_key(&input.previous_output)
+        });
+        output_matches || input_matches
+    }
+
+    fn scan_tx(
+        &self,
+        tx: &Transaction,
+        partial_secret: &PublicKey,
+    ) -> Result<Vec<SpOut>, SpReceiveError> {
+        let ecdh_shared_secret = compute_shared_secret(&self.sp_pub.scan_sk, partial_secret);
+        scan_txouts(
+            self.sp_pub.spend_pk,
+            &self.index.label_lookup,
+            tx,
+            ecdh_shared_secret,
+        )
+    }
+
+    pub fn insert_anchor(&mut self, txid: Txid, anchor: A) -> ChangeSet<A> {
+        self.graph.insert_anchor(txid, anchor).into()
+    }
+
+    pub fn insert_seen_at(&mut self, txid: Txid, seen_at: u64) -> ChangeSet<A> {
+        self.graph.insert_seen_at(txid, seen_at).into()
+    }
+
+    pub fn insert_evicted_at(&mut self, txid: Txid, evicted_at: u64) -> ChangeSet<A> {
+        self.graph.insert_evicted_at(txid, evicted_at).into()
+    }
+
+    pub fn batch_insert_relevant_evicted_at(
+        &mut self,
+        evicted_ats: impl IntoIterator<Item = (Txid, u64)>,
+    ) -> ChangeSet<A> {
+        self.graph
+            .batch_insert_relevant_evicted_at(evicted_ats)
+            .into()
+    }
+
+    pub fn batch_insert_relevant<T: Into<Arc<Transaction>>>(
+        &mut self,
+        txs: impl IntoIterator<Item = (T, PublicKey, impl IntoIterator<Item = A>)>,
+    ) -> ChangeSet<A> {
+        let txs = txs
+            .into_iter()
+            .map(|(tx, partial_secret, anchors)| {
+                (
+                    <T as Into<Arc<Transaction>>>::into(tx),
+                    partial_secret,
+                    anchors,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let mut indexer = ChangeSet::default();
+        for (tx, partial_secret, _) in &txs {
+            indexer.merge(self.index_tx(tx, partial_secret));
+        }
+
+        for (tx, _, anchors) in txs {
+            if self.is_tx_relevant(&tx) {
+                let txid = tx.compute_txid();
+                indexer.graph.merge(self.graph.insert_tx(tx.clone()));
+                for anchor in anchors {
+                    indexer.graph.merge(self.graph.insert_anchor(txid, anchor));
+                }
+            }
+        }
+
+        indexer
+    }
+
+    pub fn batch_insert_relevant_unconfirmed<T: Into<Arc<Transaction>>>(
+        &mut self,
+        unconfirmed_txs: impl IntoIterator<Item = (T, PublicKey, u64)>,
+    ) -> ChangeSet<A> {
+        let txs = unconfirmed_txs
+            .into_iter()
+            .map(|(tx, partial_secret, last_seen)| {
+                (
+                    <T as Into<Arc<Transaction>>>::into(tx),
+                    partial_secret,
+                    last_seen,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let mut indexer = ChangeSet::default();
+        for (tx, partial_secret, _) in &txs {
+            indexer.merge(self.index_tx(tx, partial_secret));
+        }
+
+        let relevant_txs: Vec<_> = txs
+            .into_iter()
+            .filter(|(tx, _, _)| self.is_tx_relevant(tx))
+            .map(|(tx, _, seen_at)| (tx.clone(), seen_at))
+            .collect();
+
+        indexer.graph = self.graph.batch_insert_unconfirmed(relevant_txs);
+
+        indexer
+    }
+
+    pub fn batch_insert_unconfirmed<T: Into<Arc<Transaction>>>(
+        &mut self,
+        unconfirmed_txs: impl IntoIterator<Item = (T, PublicKey, u64)>,
+    ) -> ChangeSet<A> {
+        let mut changeset = ChangeSet::default();
+        let txs = unconfirmed_txs
+            .into_iter()
+            .map(|(tx, partial_secret, last_seen)| {
+                (
+                    <T as Into<Arc<Transaction>>>::into(tx),
+                    partial_secret,
+                    last_seen,
+                )
+            })
+            .collect::<Vec<_>>();
+        let just_txs: Vec<_> = txs
+            .clone()
+            .into_iter()
+            .map(|(tx, _, last_seen)| (tx, last_seen))
+            .collect();
+        changeset.graph = self.graph.batch_insert_unconfirmed(just_txs);
+        for (tx, partial_secret, _) in &txs {
+            changeset.merge(self.index_tx(tx, partial_secret));
+        }
+
+        changeset
+    }
+}
+
+impl<A> SpIndexerV2<A>
+where
+    for<'b> A: Anchor + From<TxPosInBlock<'b>>,
+{
+    pub fn apply_block_with_filter(
+        &mut self,
+        block: &Block,
+        partial_secrets: HashMap<Txid, PublicKey>,
+        height: u32,
+        filter: impl Fn(&Self, &Transaction) -> bool,
+    ) -> ChangeSet<A> {
+        let block_id = BlockId {
+            hash: block.block_hash(),
+            height,
+        };
+        let mut changeset = ChangeSet::<A>::default();
+        for (tx_pos, tx) in block.txdata.iter().enumerate() {
+            let txid = tx.compute_txid();
+            if let Some(partial_secret) = partial_secrets.get(&txid) {
+                changeset.merge(self.index_tx(tx, partial_secret));
+                if filter(self, tx) {
+                    let anchor = TxPosInBlock {
+                        block,
+                        block_id,
+                        tx_pos,
+                    }
+                    .into();
+                    changeset.graph.merge(self.graph.insert_tx(tx.clone()));
+                    changeset
+                        .graph
+                        .merge(self.graph.insert_anchor(txid, anchor));
+                }
+            }
+        }
+        changeset
+    }
+
+    pub fn apply_block_relevant(
+        &mut self,
+        block: &Block,
+        partial_secrets: HashMap<Txid, PublicKey>,
+        height: u32,
+    ) -> ChangeSet<A> {
+        self.apply_block_with_filter(block, partial_secrets, height, Self::is_tx_relevant)
+    }
+
+    pub fn apply_block(
+        &mut self,
+        block: &Block,
+        partial_secrets: HashMap<Txid, PublicKey>,
+        height: u32,
+    ) -> ChangeSet<A> {
+        self.apply_block_with_filter(block, partial_secrets, height, |_, _| true)
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChangeSet<A> {
