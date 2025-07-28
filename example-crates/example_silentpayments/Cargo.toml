@@ -16,4 +16,4 @@ anyhow = "1"
 bitcoin = { version = "0.32.0", features = ["base64"], default-features = false }
 serde = "1.0.219"
 rand = "0.9.0"
-indexer = { version = "0.1.0", path = "../../indexer" }
+indexer = { version = "0.1.0", path = "../../indexer", features = ["serde"]}

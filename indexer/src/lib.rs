@@ -111,7 +111,7 @@ impl<A: bdk_chain::Anchor> SpIndexerV2<A> {
             });
             for (txid, partial_secret) in changeset.txid_to_partial_secret.iter() {
                 if let Some(tx) = self.graph.get_tx(*txid) {
-                    self.index_tx(tx.as_ref(), partial_secret);
+                    let _ = self.index_tx(tx.as_ref(), partial_secret);
                 }
             }
         }
@@ -337,6 +337,15 @@ where
 }
 
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize, serde::Serialize),
+    serde(bound(
+        deserialize = "A: Ord + serde::Deserialize<'de>",
+        serialize = "A: Ord + serde::Serialize"
+    ))
+)]
+#[must_use]
 pub struct ChangeSet<A> {
     pub scan_sk: Option<SecretKey>,
     pub spend_pk: Option<PublicKey>,
