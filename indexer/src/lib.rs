@@ -1,12 +1,17 @@
+use self::indexes::Label;
 use bdk_bitcoind_rpc::bitcoincore_rpc::{Client, RpcApi};
 use bdk_chain::{Merge, TxGraph, tx_graph};
 use bdk_sp::{
     bitcoin::{
         OutPoint, ScriptBuf, Transaction, TxOut, Txid,
-        key::Secp256k1,
+        key::{
+            Secp256k1,
+            constants::{GENERATOR_X, GENERATOR_Y},
+        },
         secp256k1::{PublicKey, Scalar, SecretKey},
     },
     encoding::SilentPaymentCode,
+    hashes::get_label_tweak,
     receive::{SpOut, SpReceiveError, scan::Scanner},
 };
 use std::{
@@ -16,6 +21,32 @@ use std::{
 
 pub use bdk_chain;
 pub mod indexes;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SpPub {
+    spend_pk: PublicKey,
+    scan_sk: SecretKey,
+}
+
+impl SpPub {
+    pub fn new(spend_pk: PublicKey, scan_sk: SecretKey) -> Self {
+        Self { spend_pk, scan_sk }
+    }
+
+    pub fn create_label(&self, num: u32) -> Result<Label, SpReceiveError> {
+        let secp = Secp256k1::verification_only();
+        let mut uncompressed_generator_point = [0x04; 65];
+        uncompressed_generator_point[1..33].clone_from_slice(&GENERATOR_X);
+        uncompressed_generator_point[33..65].clone_from_slice(&GENERATOR_Y);
+        let generator_secp256k1 =
+            PublicKey::from_slice(&uncompressed_generator_point).map_err(SpReceiveError::from)?;
+        let tweak = get_label_tweak(self.scan_sk, num);
+        let point = generator_secp256k1
+            .add_exp_tweak(&secp, &tweak)
+            .map_err(SpReceiveError::from)?;
+        Ok(Label { num, tweak, point })
+    }
+}
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SpIndexes {
