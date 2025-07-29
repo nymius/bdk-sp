@@ -75,7 +75,7 @@ pub fn create_silentpayment_partial_secret(
 pub fn create_silentpayment_scriptpubkeys(
     partial_secret: SecretKey,
     outputs: &[SilentPaymentCode],
-) -> Result<HashMap<SilentPaymentCode, Vec<XOnlyPublicKey>>, SpSendError> {
+) -> HashMap<SilentPaymentCode, Vec<XOnlyPublicKey>> {
     let secp = Secp256k1::new();
 
     // Cache to avoid recomputing ecdh shared secret for each B_scan and track the k to get the
@@ -117,7 +117,7 @@ pub fn create_silentpayment_scriptpubkeys(
         }
     }
 
-    Ok(payments)
+    payments
 }
 
 #[cfg(test)]
@@ -308,8 +308,7 @@ mod tests {
     fn test_create_silentpayment_spk_base() {
         let (partial_secret, sp_codes) = setup_test_data();
 
-        let result =
-            create_silentpayment_scriptpubkeys(partial_secret, &sp_codes).expect("should succeed");
+        let result = create_silentpayment_scriptpubkeys(partial_secret, &sp_codes);
 
         assert_eq!(result.len(), 3);
 
@@ -324,8 +323,7 @@ mod tests {
         let (partial_secret, _) = setup_test_data();
         let empty_outputs: Vec<SilentPaymentCode> = vec![];
 
-        let result = create_silentpayment_scriptpubkeys(partial_secret, &empty_outputs)
-            .expect("should succeed with empty outputs");
+        let result = create_silentpayment_scriptpubkeys(partial_secret, &empty_outputs);
 
         assert!(result.is_empty());
     }
@@ -336,8 +334,7 @@ mod tests {
 
         assert_eq!(sp_codes[0].scan, sp_codes[2].scan);
 
-        let result =
-            create_silentpayment_scriptpubkeys(partial_secret, &sp_codes).expect("should succeed");
+        let result = create_silentpayment_scriptpubkeys(partial_secret, &sp_codes);
 
         // Get the pubkeys for codes with the same scan key
         let pubkeys_1 = &result[&sp_codes[0]];
@@ -353,10 +350,8 @@ mod tests {
         let (partial_secret, sp_codes) = setup_test_data();
 
         // Generate sp_codes twice with the same inputs
-        let result_1 =
-            create_silentpayment_scriptpubkeys(partial_secret, &sp_codes).expect("should succeed");
-        let result_2 =
-            create_silentpayment_scriptpubkeys(partial_secret, &sp_codes).expect("should succeed");
+        let result_1 = create_silentpayment_scriptpubkeys(partial_secret, &sp_codes);
+        let result_2 = create_silentpayment_scriptpubkeys(partial_secret, &sp_codes);
 
         // Results should be identical
         assert_eq!(result_1.len(), result_2.len());
@@ -373,8 +368,7 @@ mod tests {
         // Add a duplicate of the first code
         sp_codes.push(sp_codes[0].clone());
 
-        let result = create_silentpayment_scriptpubkeys(partial_secret, &sp_codes)
-            .expect("should succeed with duplicates");
+        let result = create_silentpayment_scriptpubkeys(partial_secret, &sp_codes);
 
         // Should still have only 3 unique entries
         assert_eq!(result.len(), 3);
@@ -403,8 +397,7 @@ mod tests {
             sp_codes.push(code);
         }
 
-        let result = create_silentpayment_scriptpubkeys(partial_secret, &sp_codes)
-            .expect("should succeed with many sp_codes");
+        let result = create_silentpayment_scriptpubkeys(partial_secret, &sp_codes);
 
         // Should have generated the correct number of sp_codes
         assert_eq!(result.len(), 100);
@@ -421,10 +414,8 @@ mod tests {
         let partial_secret_2 =
             SecretKey::from_str(PARTIAL_SECRET_2).expect("creating from constant");
 
-        let result_1 = create_silentpayment_scriptpubkeys(partial_secret_1, &sp_codes)
-            .expect("should succeed");
-        let result_2 = create_silentpayment_scriptpubkeys(partial_secret_2, &sp_codes)
-            .expect("should succeed");
+        let result_1 = create_silentpayment_scriptpubkeys(partial_secret_1, &sp_codes);
+        let result_2 = create_silentpayment_scriptpubkeys(partial_secret_2, &sp_codes);
 
         // Results should be different with different partial secrets
         for sp_code in &sp_codes {
