@@ -1,16 +1,15 @@
 #![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+use bitcoin::{
+    hashes::Hash,
+    secp256k1::{ecdh::shared_secret_point, PublicKey, SecretKey},
+    OutPoint, ScriptBuf, TxIn,
+};
 
 pub mod encoding;
 pub mod hashes;
 pub mod receive;
 pub mod send;
 pub use bitcoin;
-
-use bitcoin::{
-    hashes::Hash,
-    secp256k1::{ecdh::shared_secret_point, PublicKey, SecretKey},
-    OutPoint, ScriptBuf, TxIn,
-};
 
 /// NUM Point used to prune key path spend in taproot
 pub const NUMS_H: [u8; 32] = [
@@ -138,18 +137,20 @@ pub fn compute_shared_secret(sk: &SecretKey, pk: &PublicKey) -> PublicKey {
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
-    use super::{tag_txin, Hash, LexMin, ScriptBuf, SpInputs, TxIn, NUMS_H};
-    use bitcoin::{
-        hex::test_hex_unwrap as hex, taproot::TAPROOT_ANNEX_PREFIX, OutPoint, Sequence, Txid,
-        Witness,
-    };
+    mod tag_txin {
+        use crate::{tag_txin, SpInputs, NUMS_H};
+        use bitcoin::{
+            hex::test_hex_unwrap as hex, taproot::TAPROOT_ANNEX_PREFIX, OutPoint, ScriptBuf,
+            Sequence, TxIn, Witness,
+        };
 
-    #[test]
-    fn test_tag_txin_p2sh_p2wpkh() {
-        let script_pubkey = ScriptBuf::from_hex("a914809b71783f1b55eeadeb1678baef0c994adc425987")
-            .expect("should succeed");
-        // third input from testnet tx 65eb5594eda20b3a2437c2e2c28ba7633f0492cbb33f62ee31469b913ce8a5ca
-        let txin = TxIn {
+        #[test]
+        fn p2sh_p2wpkh() {
+            let script_pubkey =
+                ScriptBuf::from_hex("a914809b71783f1b55eeadeb1678baef0c994adc425987")
+                    .expect("should succeed");
+            // third input from testnet tx 65eb5594eda20b3a2437c2e2c28ba7633f0492cbb33f62ee31469b913ce8a5ca
+            let txin = TxIn {
             previous_output: OutPoint {
                 txid: "04d984cdcf728975c173c45c49a242cedee2da5dc200b2f83ca6a98aecf11280"
                     .parse()
@@ -164,17 +165,18 @@ mod tests {
             ), hex!("02ae68d299cbb8ab99bf24c9af79a7b13d28ac8cd21f6f7f750300eda41a589a5d")]),
         };
 
-        let tagged_input = tag_txin(&txin, &script_pubkey);
+            let tagged_input = tag_txin(&txin, &script_pubkey);
 
-        assert_eq!(Some(SpInputs::WrappedSegwit), tagged_input);
-    }
+            assert_eq!(Some(SpInputs::WrappedSegwit), tagged_input);
+        }
 
-    #[test]
-    fn test_tag_txin_p2sh_p2wsh() {
-        let script_pubkey = ScriptBuf::from_hex("a914257014cec2f75c19367b2a6a0e08b9f304108e3b87")
-            .expect("should succeed");
-        // only input from mainnet tx 55c7c71c63b87478cd30d401e7ca5344a2e159dc8d6990df695c7e0cb2f82783
-        let txin = TxIn {
+        #[test]
+        fn p2sh_p2wsh() {
+            let script_pubkey =
+                ScriptBuf::from_hex("a914257014cec2f75c19367b2a6a0e08b9f304108e3b87")
+                    .expect("should succeed");
+            // only input from mainnet tx 55c7c71c63b87478cd30d401e7ca5344a2e159dc8d6990df695c7e0cb2f82783
+            let txin = TxIn {
             previous_output: OutPoint {
                 txid: "c57007980fabfd7c44895d8fc2c28c6ead93483b7c2bfec682ce0a3eaa4008ce"
                     .parse()
@@ -189,19 +191,19 @@ mod tests {
             )]),
         };
 
-        let tagged_input = tag_txin(&txin, &script_pubkey);
+            let tagged_input = tag_txin(&txin, &script_pubkey);
 
-        assert_eq!(None, tagged_input);
-    }
+            assert_eq!(None, tagged_input);
+        }
 
-    #[test]
-    fn test_tag_txin_p2tr() {
-        let script_pubkey = ScriptBuf::from_hex(
-            "51200f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667",
-        )
-        .expect("should succeed");
-        // only input from mainnet tx 091d2aaadc409298fd8353a4cd94c319481a0b4623fb00872fe240448e93fcbe
-        let txin = TxIn {
+        #[test]
+        fn p2tr() {
+            let script_pubkey = ScriptBuf::from_hex(
+                "51200f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667",
+            )
+            .expect("should succeed");
+            // only input from mainnet tx 091d2aaadc409298fd8353a4cd94c319481a0b4623fb00872fe240448e93fcbe
+            let txin = TxIn {
             previous_output: OutPoint {
                 txid: "a7115c7267dbb4aab62b37818d431b784fe731f4d2f9fa0939a9980d581690ec"
                     .parse()
@@ -215,48 +217,48 @@ mod tests {
             )]),
         };
 
-        let tagged_input = tag_txin(&txin, &script_pubkey);
+            let tagged_input = tag_txin(&txin, &script_pubkey);
 
-        assert_eq!(Some(SpInputs::P2TR), tagged_input);
-    }
+            assert_eq!(Some(SpInputs::P2TR), tagged_input);
+        }
 
-    #[test]
-    fn test_tag_txin_p2tr_nums_point() {
-        let script_pubkey = ScriptBuf::from_hex(
-            "51200f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667",
-        )
-        .expect("should succeed");
-        let mut nums_in_witness = [0u8; 33];
-        nums_in_witness[1..33].clone_from_slice(&NUMS_H);
-        // Crafted P2TR Tx with NUMS point as internal key
-        let txin = TxIn {
-            previous_output: OutPoint {
-                txid: "a7115c7267dbb4aab62b37818d431b784fe731f4d2f9fa0939a9980d581690ec"
-                    .parse()
-                    .unwrap(),
-                vout: 0,
-            },
-            script_sig: ScriptBuf::new(),
-            sequence: Sequence::MAX,
-            witness: Witness::from_slice(&[
-                hex!("02ae68d299cbb8ab99bf24c9af79a7b13d28ac8cd21f6f7f750300eda41a589a5d"),
-                hex!("02ae68d299cbb8ab99bf24c9af79a7b13d28ac8cd21f6f7f750300eda41a589a5d"),
-                nums_in_witness.to_vec(),
-                vec![TAPROOT_ANNEX_PREFIX],
-            ]),
-        };
-
-        let tagged_input = tag_txin(&txin, &script_pubkey);
-
-        assert_eq!(None, tagged_input);
-    }
-
-    #[test]
-    fn test_tag_txin_p2wpkh() {
-        let script_pubkey = ScriptBuf::from_hex("001453d9c40342ee880e766522c3e2b854d37f2b3cbf")
+        #[test]
+        fn p2tr_nums_point() {
+            let script_pubkey = ScriptBuf::from_hex(
+                "51200f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667",
+            )
             .expect("should succeed");
-        // only input from mainnet tx 091d2aaadc409298fd8353a4cd94c319481a0b4623fb00872fe240448e93fcbe
-        let txin = TxIn {
+            let mut nums_in_witness = [0u8; 33];
+            nums_in_witness[1..33].clone_from_slice(&NUMS_H);
+            // Crafted P2TR Tx with NUMS point as internal key
+            let txin = TxIn {
+                previous_output: OutPoint {
+                    txid: "a7115c7267dbb4aab62b37818d431b784fe731f4d2f9fa0939a9980d581690ec"
+                        .parse()
+                        .unwrap(),
+                    vout: 0,
+                },
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::MAX,
+                witness: Witness::from_slice(&[
+                    hex!("02ae68d299cbb8ab99bf24c9af79a7b13d28ac8cd21f6f7f750300eda41a589a5d"),
+                    hex!("02ae68d299cbb8ab99bf24c9af79a7b13d28ac8cd21f6f7f750300eda41a589a5d"),
+                    nums_in_witness.to_vec(),
+                    vec![TAPROOT_ANNEX_PREFIX],
+                ]),
+            };
+
+            let tagged_input = tag_txin(&txin, &script_pubkey);
+
+            assert_eq!(None, tagged_input);
+        }
+
+        #[test]
+        fn p2wpkh() {
+            let script_pubkey = ScriptBuf::from_hex("001453d9c40342ee880e766522c3e2b854d37f2b3cbf")
+                .expect("should succeed");
+            // only input from mainnet tx 091d2aaadc409298fd8353a4cd94c319481a0b4623fb00872fe240448e93fcbe
+            let txin = TxIn {
             previous_output: OutPoint {
                 txid: "a7115c7267dbb4aab62b37818d431b784fe731f4d2f9fa0939a9980d581690ec"
                     .parse()
@@ -271,17 +273,17 @@ mod tests {
             ]),
         };
 
-        let tagged_input = tag_txin(&txin, &script_pubkey);
+            let tagged_input = tag_txin(&txin, &script_pubkey);
 
-        assert_eq!(Some(SpInputs::P2WPKH), tagged_input);
-    }
+            assert_eq!(Some(SpInputs::P2WPKH), tagged_input);
+        }
 
-    #[test]
-    fn test_tag_txin_invalid_p2wpkh_input_with_non_empty_script_sig() {
-        let script_pubkey = ScriptBuf::from_hex("001453d9c40342ee880e766522c3e2b854d37f2b3cbf")
-            .expect("should succeed");
-        // Crafted example taking mainnet tx 091d2aaadc409298fd8353a4cd94c319481a0b4623fb00872fe240448e93fcbe as template
-        let txin = TxIn {
+        #[test]
+        fn p2wpkh_with_non_empty_script_sig() {
+            let script_pubkey = ScriptBuf::from_hex("001453d9c40342ee880e766522c3e2b854d37f2b3cbf")
+                .expect("should succeed");
+            // Crafted example taking mainnet tx 091d2aaadc409298fd8353a4cd94c319481a0b4623fb00872fe240448e93fcbe as template
+            let txin = TxIn {
             previous_output: OutPoint {
                 txid: "a7115c7267dbb4aab62b37818d431b784fe731f4d2f9fa0939a9980d581690ec"
                     .parse()
@@ -297,18 +299,18 @@ mod tests {
             ]),
         };
 
-        let tagged_input = tag_txin(&txin, &script_pubkey);
+            let tagged_input = tag_txin(&txin, &script_pubkey);
 
-        assert_eq!(None, tagged_input);
-    }
+            assert_eq!(None, tagged_input);
+        }
 
-    #[test]
-    fn test_tag_txin_p2pkh() {
-        let script_pubkey =
-            ScriptBuf::from_hex("76a9140c443537e6e31f06e6edb2d4bb80f8481e2831ac88ac")
-                .expect("should succeed");
-        // only input from mainnet tx 4316fe7be359937317f42ffaf05ab02554297fb83096a0beb985a25f9e338215
-        let txin = TxIn {
+        #[test]
+        fn p2pkh() {
+            let script_pubkey =
+                ScriptBuf::from_hex("76a9140c443537e6e31f06e6edb2d4bb80f8481e2831ac88ac")
+                    .expect("should succeed");
+            // only input from mainnet tx 4316fe7be359937317f42ffaf05ab02554297fb83096a0beb985a25f9e338215
+            let txin = TxIn {
             previous_output: OutPoint {
                 txid: "40e331b67c0fe7750bb3b1943b378bf702dce86124dc12fa5980f975db7ec930"
                     .parse()
@@ -320,17 +322,17 @@ mod tests {
             witness: Witness::new(),
         };
 
-        let tagged_input = tag_txin(&txin, &script_pubkey);
+            let tagged_input = tag_txin(&txin, &script_pubkey);
 
-        assert_eq!(Some(SpInputs::P2PKH), tagged_input);
-    }
+            assert_eq!(Some(SpInputs::P2PKH), tagged_input);
+        }
 
-    #[test]
-    fn test_tag_txin_p2pk() {
-        let script_pubkey = ScriptBuf::from_hex("41049464205950188c29d377eebca6535e0f3699ce4069ecd77ffebfbd0bcf95e3c134cb7d2742d800a12df41413a09ef87a80516353a2f0a280547bb5512dc03da8ac")
+        #[test]
+        fn p2pk() {
+            let script_pubkey = ScriptBuf::from_hex("41049464205950188c29d377eebca6535e0f3699ce4069ecd77ffebfbd0bcf95e3c134cb7d2742d800a12df41413a09ef87a80516353a2f0a280547bb5512dc03da8ac")
             .expect("should succeed");
-        // only input from mainnet tx e827a366ad4fc9a305e0901fe1eefc7e9fb8d70655a079877cf1ead0c3618ec0
-        let txin = TxIn {
+            // only input from mainnet tx e827a366ad4fc9a305e0901fe1eefc7e9fb8d70655a079877cf1ead0c3618ec0
+            let txin = TxIn {
             previous_output: OutPoint {
                 txid: "1db6251a9afce7025a2061a19e63c700dffc3bec368bd1883decfac353357a9d"
                     .parse()
@@ -342,17 +344,18 @@ mod tests {
             witness: Witness::new(),
         };
 
-        let tagged_input = tag_txin(&txin, &script_pubkey);
+            let tagged_input = tag_txin(&txin, &script_pubkey);
 
-        assert_eq!(None, tagged_input);
-    }
+            assert_eq!(None, tagged_input);
+        }
 
-    #[test]
-    fn test_tag_txin_p2sh_no_witness_script_sig_non_empty_spk_is_not_p2wpkh() {
-        let script_pubkey = ScriptBuf::from_hex("a914748284390f9e263a4b766a75d0633c50426eb87587")
-            .expect("should succeed");
-        // Eleventh input from mainnet tx 30c239f3ae062c5f1151476005fd0057adfa6922de1b38d0f11eb657a8157b30
-        let txin = TxIn {
+        #[test]
+        fn empty_witness_non_empty_script_sig_spk_is_p2sh() {
+            let script_pubkey =
+                ScriptBuf::from_hex("a914748284390f9e263a4b766a75d0633c50426eb87587")
+                    .expect("should succeed");
+            // Eleventh input from mainnet tx 30c239f3ae062c5f1151476005fd0057adfa6922de1b38d0f11eb657a8157b30
+            let txin = TxIn {
             previous_output: OutPoint {
                 txid: "450c309b70fb3f71b63b10ce60af17499bd21b1db39aa47b19bf22166ee67144"
                     .parse()
@@ -364,185 +367,191 @@ mod tests {
             witness: Witness::new(),
         };
 
-        let tagged_input = tag_txin(&txin, &script_pubkey);
+            let tagged_input = tag_txin(&txin, &script_pubkey);
 
-        assert_eq!(None, tagged_input);
+            assert_eq!(None, tagged_input);
+        }
     }
 
-    #[test]
-    fn test_lex_min_different_txids_and_vouts() {
-        let mut lex_min = LexMin::default();
-        let outpoints = [
-            OutPoint {
-                txid: Txid::from_slice(&[3u8; 32]).unwrap(),
-                vout: 2,
-            },
-            OutPoint {
-                txid: Txid::from_slice(&[2u8; 32]).unwrap(),
-                vout: 1,
-            },
-            OutPoint {
-                txid: Txid::from_slice(&[5u8; 32]).unwrap(),
-                vout: 3,
-            },
-        ];
+    mod lex_min {
+        use crate::LexMin;
+        use bitcoin::{hashes::Hash, OutPoint, Txid};
 
-        for outpoint in outpoints.iter() {
-            lex_min.update(outpoint);
+        #[test]
+        fn different_txids_and_vouts() {
+            let mut lex_min = LexMin::default();
+            let outpoints = [
+                OutPoint {
+                    txid: Txid::from_slice(&[3u8; 32]).unwrap(),
+                    vout: 2,
+                },
+                OutPoint {
+                    txid: Txid::from_slice(&[2u8; 32]).unwrap(),
+                    vout: 1,
+                },
+                OutPoint {
+                    txid: Txid::from_slice(&[5u8; 32]).unwrap(),
+                    vout: 3,
+                },
+            ];
+
+            for outpoint in outpoints.iter() {
+                lex_min.update(outpoint);
+            }
+
+            let result = lex_min.bytes().expect("should succeed");
+
+            let mut expected_bytes = [2u8; 36];
+            expected_bytes[32..36].copy_from_slice(&1u32.to_le_bytes());
+
+            assert_eq!(result, expected_bytes);
         }
 
-        let result = lex_min.bytes().expect("should succeed");
-
-        let mut expected_bytes = [2u8; 36];
-        expected_bytes[32..36].copy_from_slice(&1u32.to_le_bytes());
-
-        assert_eq!(result, expected_bytes);
-    }
-
-    #[test]
-    fn test_lex_min_no_update() {
-        let e = LexMin::default().bytes().expect_err("should fail");
-        assert_eq!("No minimal outpoint, update at least once", e.to_string());
-    }
-
-    // Additional test: same txid, different vouts
-    #[test]
-    fn test_lex_min_identical_txid_different_vouts() {
-        let mut lex_min = LexMin::default();
-        let txid = Txid::from_slice(&[0u8; 32]).unwrap();
-        let outpoints = [
-            OutPoint { txid, vout: 10 },
-            OutPoint { txid, vout: 2 },
-            OutPoint { txid, vout: 5 },
-        ];
-
-        for outpoint in outpoints.iter() {
-            lex_min.update(outpoint);
+        #[test]
+        fn no_update() {
+            let e = LexMin::default().bytes().expect_err("should fail");
+            assert_eq!("No minimal outpoint, update at least once", e.to_string());
         }
 
-        let result = lex_min.bytes().expect("should succeed");
+        // Additional test: same txid, different vouts
+        #[test]
+        fn identical_txid_different_vouts() {
+            let mut lex_min = LexMin::default();
+            let txid = Txid::from_slice(&[0u8; 32]).unwrap();
+            let outpoints = [
+                OutPoint { txid, vout: 10 },
+                OutPoint { txid, vout: 2 },
+                OutPoint { txid, vout: 5 },
+            ];
 
-        let mut expected_bytes = [0u8; 36];
-        expected_bytes[32..36].copy_from_slice(&2u32.to_le_bytes());
-        assert_eq!(result, expected_bytes);
-    }
+            for outpoint in outpoints.iter() {
+                lex_min.update(outpoint);
+            }
 
-    #[test]
-    fn test_lex_min_same_vout_different_txid() {
-        let mut lex_min = LexMin::default();
-        let outpoints = [
-            OutPoint {
-                txid: Txid::from_slice(&[2u8; 32]).unwrap(),
-                vout: 7,
-            },
-            OutPoint {
-                txid: Txid::from_slice(&[1u8; 32]).unwrap(),
-                vout: 7,
-            },
-            OutPoint {
-                txid: Txid::from_slice(&[3u8; 32]).unwrap(),
-                vout: 7,
-            },
-        ];
+            let result = lex_min.bytes().expect("should succeed");
 
-        for outpoint in outpoints.iter() {
-            lex_min.update(outpoint);
+            let mut expected_bytes = [0u8; 36];
+            expected_bytes[32..36].copy_from_slice(&2u32.to_le_bytes());
+            assert_eq!(result, expected_bytes);
         }
 
-        let result = lex_min.bytes().expect("should succeed");
+        #[test]
+        fn same_vout_different_txid() {
+            let mut lex_min = LexMin::default();
+            let outpoints = [
+                OutPoint {
+                    txid: Txid::from_slice(&[2u8; 32]).unwrap(),
+                    vout: 7,
+                },
+                OutPoint {
+                    txid: Txid::from_slice(&[1u8; 32]).unwrap(),
+                    vout: 7,
+                },
+                OutPoint {
+                    txid: Txid::from_slice(&[3u8; 32]).unwrap(),
+                    vout: 7,
+                },
+            ];
 
-        let mut expected_bytes = [1u8; 36];
-        expected_bytes[32..36].copy_from_slice(&7u32.to_le_bytes());
-        assert_eq!(result, expected_bytes);
-    }
+            for outpoint in outpoints.iter() {
+                lex_min.update(outpoint);
+            }
 
-    #[test]
-    fn test_lex_min_edge_case_max_vout() {
-        let mut lex_min = LexMin::default();
-        let outpoints = [
-            OutPoint {
-                txid: Txid::from_slice(&[1u8; 32]).unwrap(),
-                vout: u32::MAX,
-            },
-            OutPoint {
-                txid: Txid::from_slice(&[1u8; 32]).unwrap(),
-                vout: u32::MIN,
-            },
-        ];
+            let result = lex_min.bytes().expect("should succeed");
 
-        for outpoint in outpoints.iter() {
-            lex_min.update(outpoint);
+            let mut expected_bytes = [1u8; 36];
+            expected_bytes[32..36].copy_from_slice(&7u32.to_le_bytes());
+            assert_eq!(result, expected_bytes);
         }
 
-        let result = lex_min.bytes().expect("should succeed");
+        #[test]
+        fn edge_case_vout_is_u32_max() {
+            let mut lex_min = LexMin::default();
+            let outpoints = [
+                OutPoint {
+                    txid: Txid::from_slice(&[1u8; 32]).unwrap(),
+                    vout: u32::MAX,
+                },
+                OutPoint {
+                    txid: Txid::from_slice(&[1u8; 32]).unwrap(),
+                    vout: u32::MIN,
+                },
+            ];
 
-        let mut expected_bytes = [1u8; 36];
-        expected_bytes[..32].copy_from_slice(&[1u8; 32]);
-        expected_bytes[32..36].copy_from_slice(&0u32.to_le_bytes());
-        assert_eq!(result, expected_bytes);
-    }
+            for outpoint in outpoints.iter() {
+                lex_min.update(outpoint);
+            }
 
-    #[test]
-    fn test_lex_min_txid_takes_precedence() {
-        let mut lex_min = LexMin::default();
-        let outpoints = [
-            OutPoint {
-                txid: Txid::from_slice(&[8u8; 32]).unwrap(),
-                vout: 0,
-            },
-            OutPoint {
-                txid: Txid::from_slice(&[5u8; 32]).unwrap(),
-                vout: 100,
-            },
-        ];
+            let result = lex_min.bytes().expect("should succeed");
 
-        for outpoint in outpoints.iter() {
-            lex_min.update(outpoint);
+            let mut expected_bytes = [1u8; 36];
+            expected_bytes[..32].copy_from_slice(&[1u8; 32]);
+            expected_bytes[32..36].copy_from_slice(&0u32.to_le_bytes());
+            assert_eq!(result, expected_bytes);
         }
 
-        let result = lex_min.bytes().expect("should succeed");
+        #[test]
+        fn txid_takes_precedence() {
+            let mut lex_min = LexMin::default();
+            let outpoints = [
+                OutPoint {
+                    txid: Txid::from_slice(&[8u8; 32]).unwrap(),
+                    vout: 0,
+                },
+                OutPoint {
+                    txid: Txid::from_slice(&[5u8; 32]).unwrap(),
+                    vout: 100,
+                },
+            ];
 
-        let mut expected_bytes = [5u8; 36];
-        expected_bytes[32..36].copy_from_slice(&100u32.to_le_bytes());
-        assert_eq!(result, expected_bytes);
-    }
+            for outpoint in outpoints.iter() {
+                lex_min.update(outpoint);
+            }
 
-    #[test]
-    fn test_get_smallest_outpoint_txid_endianness_matters() {
-        let mut lex_min = LexMin::default();
-        // big endian: 0x[00][00][00][01]
-        // big endian: 0x[a1][b1][c1][d1]
-        let mut txid_bytes_be = [0u8; 32];
-        txid_bytes_be[0] = 1;
+            let result = lex_min.bytes().expect("should succeed");
 
-        // little endian: 0x[01][00][00][00]
-        // little endian: 0x[a2][b2][c2][d2]
-        let mut txid_bytes_le = [0u8; 32];
-        txid_bytes_le[31] = 1;
-
-        let outpoints = [
-            OutPoint {
-                txid: Txid::from_slice(&txid_bytes_be).unwrap(),
-                vout: 1,
-            },
-            OutPoint {
-                txid: Txid::from_slice(&txid_bytes_le).unwrap(),
-                vout: 1,
-            },
-        ];
-
-        for outpoint in outpoints.iter() {
-            lex_min.update(outpoint);
+            let mut expected_bytes = [5u8; 36];
+            expected_bytes[32..36].copy_from_slice(&100u32.to_le_bytes());
+            assert_eq!(result, expected_bytes);
         }
 
-        // if Txid is big endian then: [a1] < [a2] => expected_bytes = txid_bytes_be
-        // if Txid is little endian then: [d2] < [d1] => expected_bytes = txid_bytes_le
-        let result = lex_min.bytes().expect("should succeed");
+        #[test]
+        fn txid_endianness_matters() {
+            let mut lex_min = LexMin::default();
+            // big endian: 0x[00][00][00][01]
+            // big endian: 0x[a1][b1][c1][d1]
+            let mut txid_bytes_be = [0u8; 32];
+            txid_bytes_be[0] = 1;
 
-        let mut expected_bytes = [0u8; 36];
-        expected_bytes[31] = 1;
-        expected_bytes[32..36].copy_from_slice(&1u32.to_le_bytes());
+            // little endian: 0x[01][00][00][00]
+            // little endian: 0x[a2][b2][c2][d2]
+            let mut txid_bytes_le = [0u8; 32];
+            txid_bytes_le[31] = 1;
 
-        assert_eq!(result, expected_bytes);
+            let outpoints = [
+                OutPoint {
+                    txid: Txid::from_slice(&txid_bytes_be).unwrap(),
+                    vout: 1,
+                },
+                OutPoint {
+                    txid: Txid::from_slice(&txid_bytes_le).unwrap(),
+                    vout: 1,
+                },
+            ];
+
+            for outpoint in outpoints.iter() {
+                lex_min.update(outpoint);
+            }
+
+            // if Txid is big endian then: [a1] < [a2] => expected_bytes = txid_bytes_be
+            // if Txid is little endian then: [d2] < [d1] => expected_bytes = txid_bytes_le
+            let result = lex_min.bytes().expect("should succeed");
+
+            let mut expected_bytes = [0u8; 36];
+            expected_bytes[31] = 1;
+            expected_bytes[32..36].copy_from_slice(&1u32.to_le_bytes());
+
+            assert_eq!(result, expected_bytes);
+        }
     }
 }

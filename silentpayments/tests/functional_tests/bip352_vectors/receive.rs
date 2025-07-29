@@ -1,8 +1,6 @@
-use std::{
-    collections::{BTreeMap, HashSet},
-    str::FromStr,
+use crate::serialization::{
+    OutputWithSignature, ReceivingDataGiven, ReceivingVinData, JSON_VECTORS,
 };
-
 use bdk_sp::{
     bitcoin::{
         absolute::LockTime,
@@ -16,9 +14,9 @@ use bdk_sp::{
     receive::{scan::Scanner, SpReceiveError},
 };
 use bitcoin::{key::TweakedPublicKey, ScriptBuf, XOnlyPublicKey};
-
-use crate::serialization::{
-    OutputWithSignature, ReceivingDataGiven, ReceivingVinData, JSON_VECTORS,
+use std::{
+    collections::{BTreeMap, HashSet},
+    str::FromStr,
 };
 
 fn process_receiving_given(

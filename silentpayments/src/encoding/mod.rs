@@ -15,12 +15,8 @@
 /// - `sp` for Bitcoin mainnet
 /// - `tsp` for Testnet/Signet
 /// - `sprt` for Regtest
-pub mod error;
-
-use crate::hashes::LabelHash;
-
 pub use self::error::{ParseError, UnknownHrpError, VersionError};
-
+use crate::hashes::LabelHash;
 use bitcoin::{
     bech32::{
         primitives::{
@@ -35,6 +31,8 @@ use bitcoin::{
     secp256k1::{PublicKey, Scalar, SecretKey},
     Network, ScriptBuf,
 };
+
+pub mod error;
 
 /// Human readable prefix for encoding bitcoin Mainnet silent payment codes
 pub const SP: Hrp = Hrp::parse_unchecked("sp");
@@ -379,21 +377,19 @@ impl TryFrom<&str> for SilentPaymentCode {
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod test {
-    use std::str::FromStr;
+    mod silent_payment_code {
+        use crate::encoding::SilentPaymentCode;
+        use bitcoin::{
+            hex::DisplayHex,
+            network::Network::Bitcoin,
+            secp256k1::{PublicKey, Scalar, SecretKey},
+            ScriptBuf,
+        };
+        use once_cell::sync::Lazy;
+        use serde::Deserialize;
+        use std::str::FromStr;
 
-    use bitcoin::{
-        hex::DisplayHex,
-        network::Network::Bitcoin,
-        secp256k1::{PublicKey, Scalar, SecretKey},
-        ScriptBuf,
-    };
-
-    use once_cell::sync::Lazy;
-    use serde::Deserialize;
-
-    use super::SilentPaymentCode;
-
-    const ENCODING_TEST_VECTORS: &str = r#"
+        const ENCODING_TEST_VECTORS: &str = r#"
         [
           {
             "index": 0,
@@ -495,176 +491,177 @@ mod test {
         ]
     "#;
 
-    static ENCODING_TEST_CASES: Lazy<Vec<EncodingTestCase>> =
-        Lazy::new(|| serde_json::from_str(ENCODING_TEST_VECTORS).expect("Invalid JSON"));
+        static ENCODING_TEST_CASES: Lazy<Vec<EncodingTestCase>> =
+            Lazy::new(|| serde_json::from_str(ENCODING_TEST_VECTORS).expect("Invalid JSON"));
 
-    const SCAN_SK: &str = "57f0148f94d13095cfda539d0da0d1541304b678d8b36e243980aab4e1b7cead";
-    const SCAN_PK: &str = "03f95241dfb00d1d42e2f48fb72e31a06b9fd166c1d6bd12648b41977dd51b9a0b";
-    const SPEND_PK: &str = "032e58afe51f9ed8ad3cc7897f634d881fdbe49a81564629ded8156bebd2ffd1af";
+        const SCAN_SK: &str = "57f0148f94d13095cfda539d0da0d1541304b678d8b36e243980aab4e1b7cead";
+        const SCAN_PK: &str = "03f95241dfb00d1d42e2f48fb72e31a06b9fd166c1d6bd12648b41977dd51b9a0b";
+        const SPEND_PK: &str = "032e58afe51f9ed8ad3cc7897f634d881fdbe49a81564629ded8156bebd2ffd1af";
 
-    #[derive(Debug, Deserialize)]
-    struct EncodingTestCase {
-        pub index: usize,
-        #[serde(alias = "comment")]
-        pub _comment: String,
-        pub input: String,
-        pub output: Option<TestOutput>,
-        pub error: Option<String>,
-    }
-
-    #[derive(Debug, Deserialize)]
-    struct TestOutput {
-        #[serde(alias = "version")]
-        pub _version: u8,
-        pub scan: String,
-        pub spend: String,
-        pub network: String,
-    }
-
-    fn assert_encoding(test_index: usize) {
-        let test_case = &ENCODING_TEST_CASES[test_index];
-        assert_eq!(test_case.index, test_index);
-        if test_case.error.is_some() && test_case.output.is_none() {
-            let expected_error = test_case.error.clone().expect("already checked is some");
-            let output = SilentPaymentCode::try_from(test_case.input.as_str());
-            assert!(output.is_err());
-            assert_eq!(expected_error, output.unwrap_err().to_string());
-        } else if test_case.output.is_some() {
-            let TestOutput {
-                scan,
-                spend,
-                network,
-                ..
-            } = test_case.output.as_ref().expect("already checked is some");
-            let sp_code = SilentPaymentCode::try_from(test_case.input.as_str()).unwrap();
-            assert_eq!(scan, &sp_code.scan.to_string());
-            assert_eq!(spend, &sp_code.spend.to_string());
-            assert_eq!(network, &sp_code.network.to_string());
-            // Check roundtrip
-            if sp_code.version() == 0 {
-                assert_eq!(test_case.input, sp_code.to_string());
-            }
-        } else {
-            panic!("test case definition is wrong");
+        #[derive(Debug, Deserialize)]
+        struct EncodingTestCase {
+            pub index: usize,
+            #[serde(alias = "comment")]
+            pub _comment: String,
+            pub input: String,
+            pub output: Option<TestOutput>,
+            pub error: Option<String>,
         }
-    }
 
-    fn scan_n_spend_pks() -> (PublicKey, PublicKey) {
-        let scan = PublicKey::from_str(SCAN_PK).expect("reading from constant");
-        let spend = PublicKey::from_str(SPEND_PK).expect("reading from constant");
+        #[derive(Debug, Deserialize)]
+        struct TestOutput {
+            #[serde(alias = "version")]
+            pub _version: u8,
+            pub scan: String,
+            pub spend: String,
+            pub network: String,
+        }
 
-        (scan, spend)
-    }
+        fn assert_encoding(test_index: usize) {
+            let test_case = &ENCODING_TEST_CASES[test_index];
+            assert_eq!(test_case.index, test_index);
+            if test_case.error.is_some() && test_case.output.is_none() {
+                let expected_error = test_case.error.clone().expect("already checked is some");
+                let output = SilentPaymentCode::try_from(test_case.input.as_str());
+                assert!(output.is_err());
+                assert_eq!(expected_error, output.unwrap_err().to_string());
+            } else if test_case.output.is_some() {
+                let TestOutput {
+                    scan,
+                    spend,
+                    network,
+                    ..
+                } = test_case.output.as_ref().expect("already checked is some");
+                let sp_code = SilentPaymentCode::try_from(test_case.input.as_str()).unwrap();
+                assert_eq!(scan, &sp_code.scan.to_string());
+                assert_eq!(spend, &sp_code.spend.to_string());
+                assert_eq!(network, &sp_code.network.to_string());
+                // Check roundtrip
+                if sp_code.version() == 0 {
+                    assert_eq!(test_case.input, sp_code.to_string());
+                }
+            } else {
+                panic!("test case definition is wrong");
+            }
+        }
 
-    fn scan_sk() -> SecretKey {
-        SecretKey::from_str(SCAN_SK).expect("reading from constant")
-    }
+        fn scan_n_spend_pks() -> (PublicKey, PublicKey) {
+            let scan = PublicKey::from_str(SCAN_PK).expect("reading from constant");
+            let spend = PublicKey::from_str(SPEND_PK).expect("reading from constant");
 
-    #[test]
-    fn test_0_successfully_parse_mainnet_code() {
-        assert_encoding(0);
-    }
+            (scan, spend)
+        }
 
-    #[test]
-    fn test_1_successfully_parse_testnet_code() {
-        assert_encoding(1);
-    }
+        fn scan_sk() -> SecretKey {
+            SecretKey::from_str(SCAN_SK).expect("reading from constant")
+        }
 
-    #[test]
-    fn test_2_successfully_parse_regtest_code() {
-        assert_encoding(2);
-    }
+        #[test]
+        fn vector_0_successfully_parse_mainnet_code() {
+            assert_encoding(0);
+        }
 
-    #[test]
-    fn test_3_fail_to_parse_mainnet_code_with_invalid_spend_key() {
-        assert_encoding(3);
-    }
+        #[test]
+        fn vector_1_successfully_parse_testnet_code() {
+            assert_encoding(1);
+        }
 
-    #[test]
-    fn test_4_fail_to_parse_mainnet_code_with_invalid_scan_key() {
-        assert_encoding(4);
-    }
+        #[test]
+        fn vector_2_successfully_parse_regtest_code() {
+            assert_encoding(2);
+        }
 
-    #[test]
-    fn test_5_fail_to_parse_code_with_wrong_hrp() {
-        assert_encoding(5);
-    }
+        #[test]
+        fn vector_3_fail_to_parse_mainnet_code_with_invalid_spend_key() {
+            assert_encoding(3);
+        }
 
-    #[test]
-    fn test_6_successfully_parse_higher_version_code_with_data_portion_above_66_bytes() {
-        assert_encoding(6);
-    }
+        #[test]
+        fn vector_4_fail_to_parse_mainnet_code_with_invalid_scan_key() {
+            assert_encoding(4);
+        }
 
-    #[test]
-    fn test_7_fail_to_parse_code_with_v31() {
-        assert_encoding(7);
-    }
+        #[test]
+        fn vector_5_fail_to_parse_code_with_wrong_hrp() {
+            assert_encoding(5);
+        }
 
-    #[test]
-    fn test_8_fail_to_parse_v0_mainnet_code_with_invalid_data_size() {
-        assert_encoding(8);
-    }
+        #[test]
+        fn vector_6_successfully_parse_higher_version_code_with_data_portion_above_66_bytes() {
+            assert_encoding(6);
+        }
 
-    #[test]
-    fn fail_to_parse_v5_mainnet_code_with_short_data_size() {
-        assert_encoding(9);
-    }
+        #[test]
+        fn vector_7_fail_to_parse_code_with_v31() {
+            assert_encoding(7);
+        }
 
-    #[test]
-    fn fail_to_parse_mainnet_code_with_invalid_checksum() {
-        assert_encoding(10);
-    }
+        #[test]
+        fn vector_8_fail_to_parse_v0_mainnet_code_with_invalid_data_size() {
+            assert_encoding(8);
+        }
 
-    #[test]
-    fn get_label() {
-        let expected_label: &str =
-            "6f3cec525b194328307cb10e83c559e29f946cd47e4a9a92eaf55967d9d22cfe";
-        let output_label = SilentPaymentCode::get_label(scan_sk(), 4);
-        assert_eq!(
-            expected_label,
-            output_label.to_be_bytes().as_hex().to_string()
-        )
-    }
+        #[test]
+        fn vector_9_fail_to_parse_v5_mainnet_code_with_short_data_size() {
+            assert_encoding(9);
+        }
 
-    #[test]
-    fn get_labelled_sp_code() {
-        let expected_labeled_code: &str = "sp1qq0u4yswlkqx36shz7j8mwt335p4el5txc8tt6yny3dqewlw4rwdqkq57x0y7k4rs5zkkd7pmumhkdadq7du5t7qf7nkyy6rfzp3jd697cg9zhz0x";
-        let expected_labeled_spend_key: &str =
-            "029e33c9eb5470a0ad66f83be6ef66f5a0f37945f809f4ec426869106326e8bec2";
+        #[test]
+        fn vector_10_fail_to_parse_mainnet_code_with_invalid_checksum() {
+            assert_encoding(10);
+        }
 
-        let (scan, spend) = scan_n_spend_pks();
-        let sp_code = SilentPaymentCode::new_v0(scan, spend, Bitcoin);
-        let label = SilentPaymentCode::get_label(scan_sk(), 4);
-        let output_labelled_code = sp_code.add_label(label).expect("should not err");
-        assert_eq!(expected_labeled_code, output_labelled_code.to_string());
-        assert_eq!(
-            expected_labeled_spend_key,
-            output_labelled_code.spend.to_string()
-        );
-        assert_eq!(SCAN_PK, output_labelled_code.scan.to_string())
-    }
+        #[test]
+        fn get_label() {
+            let expected_label: &str =
+                "6f3cec525b194328307cb10e83c559e29f946cd47e4a9a92eaf55967d9d22cfe";
+            let output_label = SilentPaymentCode::get_label(scan_sk(), 4);
+            assert_eq!(
+                expected_label,
+                output_label.to_be_bytes().as_hex().to_string()
+            )
+        }
 
-    #[test]
-    fn crafted_labeling_failure_case() {
-        let (scan, spend) = scan_n_spend_pks();
-        // Use the scan key as spend (because we only have the sk of scan)
-        let sp_code = SilentPaymentCode::new_v0(spend, scan, Bitcoin);
-        let negated_scan_scalar = Scalar::from(scan_sk().negate());
-        let output = sp_code.add_label(negated_scan_scalar);
-        assert!(output.is_err());
-        assert_eq!("bad tweak", output.unwrap_err().to_string());
-    }
+        #[test]
+        fn get_labelled_sp_code() {
+            let expected_labeled_code: &str = "sp1qq0u4yswlkqx36shz7j8mwt335p4el5txc8tt6yny3dqewlw4rwdqkq57x0y7k4rs5zkkd7pmumhkdadq7du5t7qf7nkyy6rfzp3jd697cg9zhz0x";
+            let expected_labeled_spend_key: &str =
+                "029e33c9eb5470a0ad66f83be6ef66f5a0f37945f809f4ec426869106326e8bec2";
 
-    #[test]
-    fn check_placeholder_spk() {
-        let (scan, spend) = scan_n_spend_pks();
-        let expected_placeholder_spk: &str =
-            "5120da3d55f0ecf27a3505ded1ac780c3d77299dc4b253010214ac9f2d1d9b365d09";
-        let sp_code = SilentPaymentCode::new_v0(scan, spend, Bitcoin);
-        let output_placeholder_spk: ScriptBuf = sp_code.get_placeholder_p2tr_spk();
-        assert_eq!(
-            expected_placeholder_spk,
-            output_placeholder_spk.to_hex_string()
-        );
+            let (scan, spend) = scan_n_spend_pks();
+            let sp_code = SilentPaymentCode::new_v0(scan, spend, Bitcoin);
+            let label = SilentPaymentCode::get_label(scan_sk(), 4);
+            let output_labelled_code = sp_code.add_label(label).expect("should not err");
+            assert_eq!(expected_labeled_code, output_labelled_code.to_string());
+            assert_eq!(
+                expected_labeled_spend_key,
+                output_labelled_code.spend.to_string()
+            );
+            assert_eq!(SCAN_PK, output_labelled_code.scan.to_string())
+        }
+
+        #[test]
+        fn crafted_labeling_failure_case() {
+            let (scan, spend) = scan_n_spend_pks();
+            // Use the scan key as spend (because we only have the sk of scan)
+            let sp_code = SilentPaymentCode::new_v0(spend, scan, Bitcoin);
+            let negated_scan_scalar = Scalar::from(scan_sk().negate());
+            let output = sp_code.add_label(negated_scan_scalar);
+            assert!(output.is_err());
+            assert_eq!("bad tweak", output.unwrap_err().to_string());
+        }
+
+        #[test]
+        fn check_placeholder_spk() {
+            let (scan, spend) = scan_n_spend_pks();
+            let expected_placeholder_spk: &str =
+                "5120da3d55f0ecf27a3505ded1ac780c3d77299dc4b253010214ac9f2d1d9b365d09";
+            let sp_code = SilentPaymentCode::new_v0(scan, spend, Bitcoin);
+            let output_placeholder_spk: ScriptBuf = sp_code.get_placeholder_p2tr_spk();
+            assert_eq!(
+                expected_placeholder_spk,
+                output_placeholder_spk.to_hex_string()
+            );
+        }
     }
 }

@@ -1,5 +1,4 @@
 use crate::{assert_silentpayment_derivation, get_silentpayment_keys, EXTERNAL_DESCRIPTOR};
-
 use bdk_sp::{
     bitcoin::{
         absolute::LockTime,
@@ -14,7 +13,6 @@ use bdk_sp::{
     },
     send::bip32::XprivSilentPaymentSender,
 };
-
 use bdk_testenv::{bitcoincore_rpc::RpcApi, TestEnv};
 use miniscript::{descriptor::DescriptorSecretKey, Descriptor, DescriptorPublicKey};
 
