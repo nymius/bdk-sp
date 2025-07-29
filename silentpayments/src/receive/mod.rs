@@ -52,17 +52,17 @@ pub fn extract_pubkey(txin: TxIn, script_pubkey: &ScriptBuf) -> Option<(SpInputs
     use SpInputs::*;
 
     tag_txin(&txin, script_pubkey).and_then(|tag| match tag {
-        WrappedSegwit | P2WPKH => {
+        ShWpkh | Wpkh => {
             let maybe_pk = txin.witness.last().expect("already checked is not empty");
             bitcoin::PublicKey::from_slice(maybe_pk)
                 .ok()
                 .filter(|pubkey| pubkey.compressed)
                 .map(|pk| (tag, pk.inner))
         }
-        P2TR => XOnlyPublicKey::from_slice(&script_pubkey.as_bytes()[2..34])
+        Tr => XOnlyPublicKey::from_slice(&script_pubkey.as_bytes()[2..34])
             .ok()
             .map(|xonly_pk| (tag, xonly_pk.public_key(Parity::Even))),
-        P2PKH => txin
+        Pkh => txin
             .script_sig
             .into_bytes()
             .windows(33)
@@ -300,7 +300,7 @@ mod tests {
 
             let (input_type, parsed_pubkey) = maybe_pubkey.expect("is some");
 
-            assert_eq!(SpInputs::WrappedSegwit, input_type);
+            assert_eq!(SpInputs::ShWpkh, input_type);
 
             assert_eq!(expected_pubkey, parsed_pubkey);
         }
@@ -335,7 +335,7 @@ mod tests {
 
             let (input_type, parsed_pubkey) = maybe_pubkey.expect("is some");
 
-            assert_eq!(SpInputs::P2WPKH, input_type);
+            assert_eq!(SpInputs::Wpkh, input_type);
 
             assert_eq!(expected_pubkey, parsed_pubkey);
         }
@@ -372,7 +372,7 @@ mod tests {
 
             let (input_type, parsed_pubkey) = maybe_pubkey.expect("is some");
 
-            assert_eq!(SpInputs::P2TR, input_type);
+            assert_eq!(SpInputs::Tr, input_type);
 
             assert_eq!(expected_pubkey, parsed_pubkey);
         }
@@ -405,7 +405,7 @@ mod tests {
 
             let (input_type, parsed_pubkey) = maybe_pubkey.expect("is some");
 
-            assert_eq!(SpInputs::P2PKH, input_type);
+            assert_eq!(SpInputs::Pkh, input_type);
 
             assert_eq!(expected_pubkey, parsed_pubkey);
         }
@@ -417,16 +417,16 @@ mod tests {
                     .expect("should succeed");
             // only input from mainnet tx 4316fe7be359937317f42ffaf05ab02554297fb83096a0beb985a25f9e338215
             let txin = TxIn {
-            previous_output: OutPoint {
-                txid: "f4184fc596403b9d638783cf57adfe4c75c605f6356fbc91338530e9831e9e16"
-                    .parse()
-                    .unwrap(),
-                vout: 1,
-            },
-            script_sig: ScriptBuf::from_hex("0075473045022100a8c61b2d470e393279d1ba54f254b7c237de299580b7fa01ffcc940442ecec4502201afba952f4e4661c40acde7acc0341589031ba103a307b886eb867b23b850b972103782eeb913431ca6e9b8c2fd80a5f72ed2024ef72a3c6fb10263c379937323338").expect("should succeed"),
-            sequence: Sequence::MAX,
-            witness: Witness::new(),
-        };
+                previous_output: OutPoint {
+                    txid: "f4184fc596403b9d638783cf57adfe4c75c605f6356fbc91338530e9831e9e16"
+                        .parse()
+                        .unwrap(),
+                    vout: 1,
+                },
+                script_sig: ScriptBuf::from_hex("0075473045022100a8c61b2d470e393279d1ba54f254b7c237de299580b7fa01ffcc940442ecec4502201afba952f4e4661c40acde7acc0341589031ba103a307b886eb867b23b850b972103782eeb913431ca6e9b8c2fd80a5f72ed2024ef72a3c6fb10263c379937323338").expect("should succeed"),
+                sequence: Sequence::MAX,
+                witness: Witness::new(),
+            };
 
             let expected_pubkey = PublicKey::from_str(
                 "03782eeb913431ca6e9b8c2fd80a5f72ed2024ef72a3c6fb10263c379937323338",
@@ -439,7 +439,7 @@ mod tests {
 
             let (input_type, parsed_pubkey) = maybe_pubkey.expect("is some");
 
-            assert_eq!(SpInputs::P2PKH, input_type);
+            assert_eq!(SpInputs::Pkh, input_type);
 
             assert_eq!(expected_pubkey, parsed_pubkey);
         }
