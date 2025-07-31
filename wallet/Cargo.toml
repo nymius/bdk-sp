@@ -1,0 +1,17 @@
+[package]
+name = "bdk_sp_wallet"
+version = "0.1.0"
+edition = "2024"
+authors.workspace = true
+
+[dependencies]
+bdk_sp = { version = "0.1.0", path = "../silentpayments" }
+bdk_tx = { version = "0.1.0", git = "https://github.com/nymius/bdk-tx", branch = "feat/add-ChangeDescriptor-enum" }
+indexer = { version = "0.1.0", path = "../indexer" , features = ["serde"]}
+serde = { version = "1.0.219", optional = true }
+
+[features]
+serde = ["dep:serde"]
+
+[lints]
+workspace = true
