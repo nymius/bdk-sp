@@ -43,14 +43,14 @@ use bdk_sp::{
 
 use bdk_bitcoind_rpc::{
     bitcoincore_rpc::{Auth, Client, RpcApi},
-    Emitter,
+    Emitter, NO_EXPECTED_MEMPOOL_TXIDS,
 };
 
 use indexer::{
     bdk_chain::{
         local_chain::{self, LocalChain},
-        tx_graph, BlockId, ChainOracle, ConfirmationBlockTime, FullTxOut, Merge, TxGraph,
-        TxPosInBlock,
+        tx_graph, BlockId, CanonicalizationParams, ChainOracle, ConfirmationBlockTime, FullTxOut,
+        Merge, TxGraph, TxPosInBlock,
     },
     SpIndexer, SpIndexes, SpIndexesChangeSet,
 };
@@ -508,7 +508,7 @@ fn main() -> anyhow::Result<()> {
                 graph.clone(),
             );
 
-            let mut emitter = Emitter::new(&rpc_client, chain.tip(), 0);
+            let mut emitter = Emitter::new(&rpc_client, chain.tip(), 0, NO_EXPECTED_MEMPOOL_TXIDS);
             let mut db_stage = ChangeSet::default();
 
             let mut last_db_commit = Instant::now();
@@ -575,8 +575,13 @@ fn main() -> anyhow::Result<()> {
                         .clone()
                         .into_iter()
                         .map(|(x, y)| (y, x));
-                    let balance =
-                        graph.balance(&*chain, synced_to.block_id(), outpoints, is_change);
+                    let balance = graph.balance(
+                        &*chain,
+                        synced_to.block_id(),
+                        CanonicalizationParams::default(),
+                        outpoints,
+                        is_change,
+                    );
                     println!(
                         "[{:>10}s] synced to {} @ {} | total: {}",
                         start.elapsed().as_secs_f32(),
@@ -607,7 +612,13 @@ fn main() -> anyhow::Result<()> {
                     .clone()
                     .into_iter()
                     .map(|(x, y)| (y, x));
-                let balance = graph.balance(chain, synced_to.block_id(), outpoints, is_change);
+                let balance = graph.balance(
+                    chain,
+                    synced_to.block_id(),
+                    CanonicalizationParams::default(),
+                    outpoints,
+                    is_change,
+                );
                 println!(
                     "[{:>10}s] synced to {} @ {} | total: {}",
                     start.elapsed().as_secs_f32(),
@@ -636,7 +647,13 @@ fn main() -> anyhow::Result<()> {
 
             let outpoints = indexes.by_outpoint.into_iter().map(|(x, y)| (y, x));
 
-            let balance = graph.try_balance(chain, chain.get_chain_tip()?, outpoints, is_change)?;
+            let balance = graph.try_balance(
+                chain,
+                chain.get_chain_tip()?,
+                CanonicalizationParams::default(),
+                outpoints,
+                is_change,
+            )?;
 
             let confirmed_total = balance.confirmed + balance.immature;
             let unconfirmed_total = balance.untrusted_pending + balance.trusted_pending;
@@ -687,7 +704,12 @@ fn main() -> anyhow::Result<()> {
             let outpoints = indexes.by_outpoint.clone().into_iter().map(|(x, y)| (y, x));
             #[allow(clippy::type_complexity)]
             let mut utxos = graph
-                .try_filter_chain_unspents(chain, chain_tip, outpoints)?
+                .try_filter_chain_unspents(
+                    chain,
+                    chain_tip,
+                    CanonicalizationParams::default(),
+                    outpoints,
+                )?
                 .filter_map(
                     |(spout, full_txo)| -> Option<
                         Result<
