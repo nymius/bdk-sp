@@ -137,6 +137,8 @@ pub enum Commands {
         /// Network
         #[clap(long, short, default_value = "signet")]
         network: Network,
+        /// Genesis Hash
+        genesis_hash: Option<BlockHash>,
     },
     Code {
         #[clap(long)]
@@ -427,7 +429,10 @@ pub fn init_or_load(db_magic: &[u8], db_path: &str) -> anyhow::Result<Option<Ini
     let args = SpArgs::parse();
 
     match args.command {
-        Commands::Create { network } => {
+        Commands::Create {
+            network,
+            genesis_hash,
+        } => {
             let secp = Secp256k1::new();
             let mut seed = [0x00; 32];
             rand::rng().fill_bytes(&mut seed);
@@ -438,8 +443,14 @@ pub fn init_or_load(db_magic: &[u8], db_path: &str) -> anyhow::Result<Option<Ini
 
             println!("{tr_desc_str}");
 
-            let genesis_block = bitcoin::constants::genesis_block(network);
-            let wallet = SpWallet::new(genesis_block.block_hash(), &tr_desc_str, network).unwrap();
+            let block_hash = if let Some(hash) = genesis_hash {
+                hash
+            } else {
+                let genesis_block = bitcoin::constants::genesis_block(network);
+                genesis_block.block_hash()
+            };
+
+            let wallet = SpWallet::new(block_hash, &tr_desc_str, network).unwrap();
             let mut db = Store::<ChangeSet>::create(DB_MAGIC, DB_PATH)?;
             if let Some(stage) = wallet.staged() {
                 db.append(stage).unwrap();
