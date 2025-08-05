@@ -317,7 +317,7 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::NewTx {
             addresses: maybe_addresses,
-            silent_payment_recipients: maybe_sp_codes,
+            sp_codes: maybe_sp_codes,
             debug: _,
             descriptor,
         } => {
@@ -335,7 +335,7 @@ fn main() -> anyhow::Result<()> {
                 }
             }
 
-            let mut recipients: Vec<SilentPaymentCode> = vec![];
+            let mut sp_recipients: Vec<SilentPaymentCode> = vec![];
             if let Some(sp_codes) = maybe_sp_codes {
                 for (sp_code, value) in sp_codes {
                     if sp_code.network != wallet.network() {
@@ -346,7 +346,7 @@ fn main() -> anyhow::Result<()> {
                         placeholder_script,
                         Amount::from_sat(value),
                     ));
-                    recipients.push(sp_code);
+                    sp_recipients.push(sp_code);
                 }
             }
 
@@ -382,7 +382,7 @@ fn main() -> anyhow::Result<()> {
             let _ = psbt.sign(&signer, &secp);
             let _res = finalizer.finalize(&mut psbt);
 
-            if !recipients.is_empty() {
+            if !sp_recipients.is_empty() {
                 for (plan_input, psbt_input) in selection.inputs.iter().zip(psbt.inputs.iter_mut())
                 {
                     if let Some(plan) = plan_input.plan() {
@@ -392,7 +392,7 @@ fn main() -> anyhow::Result<()> {
                 }
 
                 // replace outputs by real final silentpayment script pubkeys
-                derive_sp(&mut psbt, &signer, &recipients, &secp)?;
+                derive_sp(&mut psbt, &signer, &sp_recipients, &secp)?;
 
                 for psbt_input in psbt.inputs.iter_mut() {
                     psbt_input.final_script_sig = None;
