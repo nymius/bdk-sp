@@ -40,8 +40,8 @@ impl<A: bdk_chain::Anchor> TryFrom<ChangeSet<A>> for SpIndexerV2<A> {
             scan_sk, spend_pk, ..
         } = value;
         match (scan_sk, spend_pk) {
-            (Some(sk), Some(pk)) => {
-                let mut indexer = SpIndexerV2::new(pk, sk, SpIndex::default());
+            (Some(scan_sk), Some(spend_pk)) => {
+                let mut indexer = SpIndexerV2::new(scan_sk, spend_pk, SpIndex::default());
                 let _ = indexer.apply_changeset(stage);
                 Ok(indexer)
             }
@@ -51,9 +51,9 @@ impl<A: bdk_chain::Anchor> TryFrom<ChangeSet<A>> for SpIndexerV2<A> {
 }
 
 impl<A: bdk_chain::Anchor> SpIndexerV2<A> {
-    pub fn new(spend_pk: PublicKey, scan_sk: SecretKey, index: SpIndex) -> Self {
+    pub fn new(scan_sk: SecretKey, spend_pk: PublicKey, index: SpIndex) -> Self {
         Self {
-            sp_pub: SpPub::new(spend_pk, scan_sk),
+            sp_pub: SpPub::new(scan_sk, spend_pk),
             index,
             graph: TxGraph::default(),
         }
@@ -487,13 +487,13 @@ impl SpIndex {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SpPub {
-    spend_pk: PublicKey,
     scan_sk: SecretKey,
+    spend_pk: PublicKey,
 }
 
 impl SpPub {
-    pub fn new(spend_pk: PublicKey, scan_sk: SecretKey) -> Self {
-        Self { spend_pk, scan_sk }
+    pub fn new(scan_sk: SecretKey, spend_pk: PublicKey) -> Self {
+        Self { scan_sk, spend_pk }
     }
 
     pub fn create_label(&self, num: u32) -> Result<Label, SpReceiveError> {

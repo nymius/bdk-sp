@@ -130,18 +130,18 @@ impl SpWallet {
             return Err(SpWalletError::PrivateDataNotAvailable);
         }
 
-        let (spend_pk, scan_sk) = match keymap.iter().next().expect("not empty") {
+        let (scan_sk, spend_pk) = match keymap.iter().next().expect("not empty") {
             (_, DescriptorSecretKey::XPrv(privkey)) => {
                 let scan_xprv = privkey.xkey.derive_priv(&secp, &paths[0]).unwrap();
                 let spend_xprv = privkey.xkey.derive_priv(&secp, &paths[1]).unwrap();
                 let scan_sk = scan_xprv.private_key;
                 let spend_pk = spend_xprv.private_key.public_key(&secp);
-                (spend_pk, scan_sk)
+                (scan_sk, spend_pk)
             }
             _ => unimplemented!("only supported single xkeys"),
         };
 
-        let indexer = SpIndexer::new(spend_pk, scan_sk, SpIndex::default());
+        let indexer = SpIndexer::new(scan_sk, spend_pk, SpIndex::default());
         let (chain, _) = LocalChain::from_genesis_hash(genesis_hash);
 
         let stage = ChangeSet {
