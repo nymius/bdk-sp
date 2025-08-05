@@ -21,7 +21,7 @@ use bdk_tx::{
     filter_unspendable_now, group_by_spk, selection_algorithm_lowest_fee_bnb, Output, PsbtParams,
     SelectorParams,
 };
-use clap::{self, Args, Parser, Subcommand};
+use clap::{self, ArgGroup, Args, Parser, Subcommand};
 use rand::RngCore;
 use serde_json::json;
 use std::{
@@ -39,61 +39,38 @@ const STDOUT_PRINT_DELAY: Duration = Duration::from_secs(6);
 /// Delay for committing to persistence.
 const DB_COMMIT_DELAY: Duration = Duration::from_secs(60);
 
-#[derive(Debug, Clone)]
-pub struct KeyValuePair<T>(pub T, pub u64);
-
-impl FromStr for KeyValuePair<Address<NetworkUnchecked>> {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let parts: Vec<&str> = s.split('=').collect();
-        if parts.len() != 2 {
-            return Err(format!("Invalid format '{}'. Expected 'key=value'", s));
-        }
-
-        let value_0 = parts[0].trim();
-        let address = Address::<NetworkUnchecked>::from_str(value_0)
-            .map_err(|_| format!("Invalid address: {}", value_0))?;
-        let value = parts[1]
-            .trim()
-            .parse::<u64>()
-            .map_err(|_| format!("Invalid number '{}' for key '{}'", parts[1], value_0))?;
-
-        Ok(KeyValuePair(address, value))
+fn parse_recipients(s: &str) -> Result<(Address<NetworkUnchecked>, u64), String> {
+    let parts: Vec<&str> = s.split(':').collect();
+    if parts.len() != 2 {
+        return Err(format!("Invalid format '{}'. Expected 'key:value'", s));
     }
+
+    let value_0 = parts[0].trim();
+    let address = Address::<NetworkUnchecked>::from_str(value_0)
+        .map_err(|_| format!("Invalid address: {}", value_0))?;
+    let value = parts[1]
+        .trim()
+        .parse::<u64>()
+        .map_err(|_| format!("Invalid number '{}' for key '{}'", parts[1], value_0))?;
+    Ok((address, value))
 }
 
-impl FromStr for KeyValuePair<SilentPaymentCode> {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let parts: Vec<&str> = s.split('=').collect();
-        if parts.len() != 2 {
-            return Err(format!("Invalid format '{}'. Expected 'key=value'", s));
-        }
-
-        let value_0 = parts[0].trim();
-        let key = SilentPaymentCode::try_from(value_0)
-            .map_err(|_| format!("Invalid silent payment address: {}", value_0))?;
-        let value = parts[1]
-            .trim()
-            .parse::<u64>()
-            .map_err(|_| format!("Invalid number '{}' for key '{}'", parts[1], key))?;
-
-        Ok(KeyValuePair(key, value))
+fn parse_sp_recipients(s: &str) -> Result<(SilentPaymentCode, u64), String> {
+    let parts: Vec<&str> = s.split(':').collect();
+    if parts.len() != 2 {
+        return Err(format!("Invalid format '{}'. Expected 'key:value'", s));
     }
-}
 
-fn parse_address_value_pairs(s: &str) -> Result<Vec<(Address<NetworkUnchecked>, u64)>, String> {
-    s.split(',')
-        .map(|pair| KeyValuePair::from_str(pair.trim()).map(|kvp| (kvp.0, kvp.1)))
-        .collect()
-}
+    let value_0 = parts[0].trim();
+    let key = SilentPaymentCode::try_from(value_0)
+        .map_err(|_| format!("Invalid silent payment address: {}", value_0))?;
 
-fn parse_sp_code_value_pairs(s: &str) -> Result<Vec<(SilentPaymentCode, u64)>, String> {
-    s.split(',')
-        .map(|pair| KeyValuePair::from_str(pair.trim()).map(|kvp| (kvp.0, kvp.1)))
-        .collect()
+    let value = parts[1]
+        .trim()
+        .parse::<u64>()
+        .map_err(|_| format!("Invalid number '{}' for key '{}'", parts[1], key))?;
+
+    Ok((key, value))
 }
 
 #[derive(Args, Debug, Clone)]
@@ -150,13 +127,18 @@ pub enum Commands {
         #[clap(flatten)]
         rpc_args: RpcArgs,
     },
+    #[command(group(
+    ArgGroup::new("at least one recipient is required")
+        .args(["addresses", "sp_codes"])
+        .required(true)
+    ))]
     NewTx {
         /// Recipient address
-        #[clap(value_parser = parse_address_value_pairs)]
+        #[clap(long = "to", value_parser = parse_recipients)]
         addresses: Option<Vec<(Address<NetworkUnchecked>, u64)>>,
         /// Silent payment code from which you want to derive the script pub key
-        #[clap(long = "code", value_parser = parse_sp_code_value_pairs)]
-        silent_payment_recipients: Option<Vec<(SilentPaymentCode, u64)>>,
+        #[clap(long = "to-sp", value_parser = parse_sp_recipients)]
+        sp_codes: Option<Vec<(SilentPaymentCode, u64)>>,
         /// Debug print the PSBT
         #[clap(long, short)]
         debug: bool,
