@@ -59,13 +59,10 @@ impl<A: bdk_chain::Anchor> SpIndexerV2<A> {
         }
     }
 
-    pub fn add_label(&mut self, num: u32) -> Option<Label> {
-        if let Ok(label) = self.sp_pub.create_label(num) {
-            self.index.index_label(&label);
-            Some(label)
-        } else {
-            None
-        }
+    pub fn add_label(&mut self, num: u32) -> Label {
+        let label = self.sp_pub.create_label(num);
+        self.index.index_label(&label);
+        label
     }
 
     pub fn get_address(&self, network: Network) -> SilentPaymentCode {
@@ -74,17 +71,15 @@ impl<A: bdk_chain::Anchor> SpIndexerV2<A> {
         SilentPaymentCode::new_v0(scan_pk, self.sp_pub.spend_pk, network)
     }
 
-    pub fn get_labeled_address(&mut self, num: u32, network: Network) -> Option<SilentPaymentCode> {
-        let maybe_label_tweak = self
+    pub fn get_labeled_address(&mut self, num: u32, network: Network) -> SilentPaymentCode {
+        let label_tweak = self
             .index
             .get_label(num)
-            .or(self.add_label(num).map(|label| label.tweak));
+            .unwrap_or(self.add_label(num).tweak);
         let sp_code = self.get_address(network);
-        if let Some(label_tweak) = maybe_label_tweak {
-            sp_code.add_label(label_tweak).ok()
-        } else {
-            None
-        }
+        sp_code
+            .add_label(label_tweak)
+            .expect("computationally unreachable: tweak is the output of a hash function")
     }
 
     pub fn scan_sk(&self) -> &SecretKey {
@@ -496,18 +491,18 @@ impl SpPub {
         Self { scan_sk, spend_pk }
     }
 
-    pub fn create_label(&self, num: u32) -> Result<Label, SpReceiveError> {
+    pub fn create_label(&self, num: u32) -> Label {
         let secp = Secp256k1::verification_only();
         let mut uncompressed_generator_point = [0x04; 65];
         uncompressed_generator_point[1..33].clone_from_slice(&GENERATOR_X);
         uncompressed_generator_point[33..65].clone_from_slice(&GENERATOR_Y);
-        let generator_secp256k1 =
-            PublicKey::from_slice(&uncompressed_generator_point).map_err(SpReceiveError::from)?;
+        let generator_secp256k1 = PublicKey::from_slice(&uncompressed_generator_point)
+            .expect("not possible as public key is the generator point in the secp256k1 curve");
         let tweak = get_label_tweak(self.scan_sk, num);
         let point = generator_secp256k1
             .add_exp_tweak(&secp, &tweak)
-            .map_err(SpReceiveError::from)?;
-        Ok(Label { num, tweak, point })
+            .expect("computationally unreachable: tweak is the output of a hash function");
+        Label { num, tweak, point }
     }
 }
 

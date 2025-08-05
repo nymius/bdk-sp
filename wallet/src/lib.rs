@@ -70,7 +70,6 @@ pub struct SpWallet {
 
 #[derive(Debug)]
 pub enum SpWalletError {
-    UnderivableLabeledAddress,
     PrivateDataNotAvailable,
     NonDefinitiveDescriptor,
     NonTaprootDescriptor,
@@ -236,12 +235,8 @@ impl SpWallet {
         self.indexer.get_address(self.network)
     }
 
-    pub fn get_labeled_address(&mut self, num: u32) -> Result<SilentPaymentCode, SpWalletError> {
-        if let Some(address) = self.indexer.get_labeled_address(num, self.network) {
-            Ok(address)
-        } else {
-            Err(SpWalletError::UnderivableLabeledAddress)
-        }
+    pub fn get_labeled_address(&mut self, num: u32) -> SilentPaymentCode {
+        self.indexer.get_labeled_address(num, self.network)
     }
 
     pub fn balance(&self) -> Balance {
