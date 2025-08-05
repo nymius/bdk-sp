@@ -71,7 +71,7 @@ impl<A: bdk_chain::Anchor> SpIndexerV2<A> {
     pub fn get_address(&self, network: Network) -> SilentPaymentCode {
         let secp = Secp256k1::new();
         let scan_pk = self.sp_pub.scan_sk.public_key(&secp);
-        SilentPaymentCode::new_v0(self.sp_pub.spend_pk, scan_pk, network)
+        SilentPaymentCode::new_v0(scan_pk, self.sp_pub.spend_pk, network)
     }
 
     pub fn get_labeled_address(&mut self, num: u32, network: Network) -> Option<SilentPaymentCode> {
