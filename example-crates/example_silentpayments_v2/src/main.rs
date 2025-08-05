@@ -350,6 +350,10 @@ fn main() -> anyhow::Result<()> {
                 }
             }
 
+            if outputs.is_empty() {
+                return Ok(());
+            }
+
             let (tip_height, tip_time) = wallet.tip_info();
             let longterm_feerate = FeeRate::from_sat_per_vb_unchecked(1);
             let selection = wallet
