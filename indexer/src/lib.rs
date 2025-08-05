@@ -305,7 +305,7 @@ where
             height,
         };
         let mut changeset = ChangeSet::<A>::default();
-        for (tx_pos, tx) in block.txdata.iter().enumerate() {
+        for (tx_pos, tx) in block.txdata.iter().enumerate().skip(1) {
             let txid = tx.compute_txid();
             if let Some(partial_secret) = partial_secrets.get(&txid) {
                 changeset.merge(self.index_tx(tx, partial_secret));
