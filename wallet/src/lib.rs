@@ -18,7 +18,8 @@ use bdk_tx::{
 use indexer::{
     SpIndex, SpIndexerV2 as SpIndexer,
     bdk_chain::{
-        Anchor, Balance, CanonicalizationParams, ChainPosition, ConfirmationBlockTime, TxGraph,
+        Anchor, Balance, CanonicalizationParams, ChainPosition, CheckPoint, ConfirmationBlockTime,
+        TxGraph,
         bdk_core::Merge,
         bitcoin::{BlockHash, Network, bip32::DerivationPath, key::Secp256k1},
         local_chain::{self, LocalChain},
@@ -292,6 +293,12 @@ impl SpWallet {
             self.indexer
                 .apply_block_relevant(block, partial_secrets, height),
         )
+    }
+
+    pub fn update_chain(&mut self, checkpoint: CheckPoint) {
+        self.stage
+            .chain
+            .merge(self.chain.apply_update(checkpoint).expect("will fix later"));
     }
 
     pub fn chain(&self) -> &LocalChain {

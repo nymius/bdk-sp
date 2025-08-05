@@ -209,6 +209,7 @@ fn main() -> anyhow::Result<()> {
 
             while let Some(emission) = emitter.next_block()? {
                 let height = emission.block_height();
+                wallet.update_chain(emission.checkpoint);
 
                 let block = &emission.block;
                 let Block { ref txdata, .. } = block;
