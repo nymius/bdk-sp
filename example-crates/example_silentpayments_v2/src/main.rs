@@ -14,7 +14,7 @@ use bdk_sp::{
     send::psbt::derive_sp,
 };
 use bdk_sp_wallet::{
-    sp_signer::{get_spend_sk, populate_sp_keymap},
+    signers::{get_spend_sk, populate_sp_keymap},
     ChangeSet, SpWallet,
 };
 use bdk_tx::{

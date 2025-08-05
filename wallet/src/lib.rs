@@ -31,7 +31,7 @@ use indexer::{
 };
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
-pub mod sp_signer;
+pub mod signers;
 
 #[derive(Default, Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
