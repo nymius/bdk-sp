@@ -150,7 +150,7 @@ pub enum Commands {
         #[clap(flatten)]
         rpc_args: RpcArgs,
     },
-    NewPsbt {
+    NewTx {
         /// Recipient address
         #[clap(value_parser = parse_address_value_pairs)]
         addresses: Option<Vec<(Address<NetworkUnchecked>, u64)>>,
@@ -161,6 +161,7 @@ pub enum Commands {
         #[clap(long, short)]
         debug: bool,
         /// descriptor
+        #[clap(required = true, last = true)]
         descriptor: Option<String>,
     },
     Balance,
@@ -314,7 +315,7 @@ fn main() -> anyhow::Result<()> {
                 ],
             )?;
         }
-        Commands::NewPsbt {
+        Commands::NewTx {
             addresses: maybe_addresses,
             silent_payment_recipients: maybe_sp_codes,
             debug: _,
@@ -364,25 +365,20 @@ fn main() -> anyhow::Result<()> {
                         bdk_tx::ChangePolicyType::NoDustAndLeastWaste { longterm_feerate },
                     ),
                 )?;
+
             let mut psbt = selection.create_psbt(PsbtParams {
                 fallback_sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
                 ..Default::default()
             })?;
 
             let finalizer = selection.clone().into_finalizer();
+            let descriptor = descriptor.expect("already checked is some");
+            let spend_sk = get_spend_sk(&descriptor, wallet.network());
+            let signer = populate_sp_keymap(&spend_sk, wallet.indexer().index(), wallet.network());
+            let _ = psbt.sign(&signer, &secp);
+            let _res = finalizer.finalize(&mut psbt);
 
-            if !recipients.is_empty() && descriptor.is_some() {
-                let descriptor = descriptor.expect("already checked is some");
-                let spend_sk = get_spend_sk(&descriptor, wallet.network());
-                let signer =
-                    populate_sp_keymap(&spend_sk, wallet.indexer().index(), wallet.network());
-                let _ = psbt.sign(&signer, &secp);
-                // Finalization is key for sp derivation as the witness provides the knowledge of the type of
-                // key used for signing, allowing to know which keys to select for intermediate secret
-                // derivation
-                let res = finalizer.finalize(&mut psbt);
-                assert!(res.is_finalized());
-
+            if !recipients.is_empty() {
                 for (plan_input, psbt_input) in selection.inputs.iter().zip(psbt.inputs.iter_mut())
                 {
                     if let Some(plan) = plan_input.plan() {
@@ -403,8 +399,13 @@ fn main() -> anyhow::Result<()> {
                 let _ = finalizer.finalize(&mut psbt);
             }
 
+            let tx = psbt.extract_tx()?;
+
             let mut obj = serde_json::Map::new();
-            obj.insert("psbt".to_string(), json!(psbt.to_string()));
+            obj.insert(
+                "tx".to_string(),
+                json!(bitcoin::consensus::encode::serialize_hex(&tx)),
+            );
             println!("{}", serde_json::to_string_pretty(&obj)?);
         }
         Commands::Create { .. } => {
