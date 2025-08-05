@@ -382,8 +382,44 @@ fn main() -> anyhow::Result<()> {
                     psbt_input.final_script_witness = None;
                 }
 
-                let _ = psbt.sign(&signer, &secp);
-                let _ = finalizer.finalize(&mut psbt);
+                let sighash_type = TapSighashType::Default;
+                let prevouts = psbt
+                    .inputs
+                    .iter()
+                    .map(|x| x.witness_utxo.clone().unwrap())
+                    .collect::<Vec<TxOut>>();
+                let prevouts = Prevouts::All(&prevouts);
+
+                let sighash = SighashCache::new(&mut psbt.unsigned_tx)
+                    .taproot_key_spend_signature_hash(0, &prevouts, sighash_type)
+                    .expect("failed to construct sighash");
+
+                // Sign the sighash using the secp256k1 library (exported by rust-bitcoin).
+                let msg = Message::from(sighash);
+
+                for i in 0..psbt.inputs.len() {
+                    let psbt_input = &mut psbt.inputs[i];
+                    if let Some(txout) = &psbt_input.witness_utxo {
+                        if let Some(tweak) =
+                            wallet.indexer().index().get_by_script(&txout.script_pubkey)
+                        {
+                            let sk = spend_sk.add_tweak(&Scalar::from(*tweak))?;
+                            let keypair = Keypair::from_secret_key(&secp, &sk);
+                            let (x_only_internal, _parity) = XOnlyPublicKey::from_keypair(&keypair);
+
+                            let signature = secp.sign_schnorr(&msg, &keypair);
+
+                            let signature = Signature {
+                                signature,
+                                sighash_type,
+                            };
+                            psbt_input.tap_key_sig = Some(signature);
+                            psbt_input.tap_internal_key = Some(x_only_internal);
+                        }
+                    }
+
+                    let _ = finalizer.finalize(&mut psbt);
+                }
             }
 
             let tx = psbt.extract_tx()?;
