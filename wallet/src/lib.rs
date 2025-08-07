@@ -16,7 +16,7 @@ use bdk_tx::{
     },
 };
 use indexer::{
-    SpIndex, SpIndexerV2 as SpIndexer,
+    SpIndexerV2 as SpIndexer,
     bdk_chain::{
         Anchor, Balance, CanonicalizationParams, ChainPosition, CheckPoint, ConfirmationBlockTime,
         TxGraph,
@@ -28,6 +28,7 @@ use indexer::{
             descriptor::{DescriptorSecretKey, DescriptorType},
         },
     },
+    indexes::SpIndex,
 };
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 

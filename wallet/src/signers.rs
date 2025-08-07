@@ -5,7 +5,7 @@ use bdk_sp::bitcoin::{
     secp256k1::{Scalar, SecretKey},
 };
 use bdk_tx::miniscript::{Descriptor, descriptor::DescriptorSecretKey};
-use indexer::SpIndex;
+use indexer::indexes::SpIndex;
 use std::{collections::HashMap, str::FromStr};
 
 type SpKeyMap = HashMap<XOnlyPublicKey, PrivateKey>;
