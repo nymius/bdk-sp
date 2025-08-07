@@ -232,28 +232,33 @@ where
 
     for (psbt_input, txin) in psbt.inputs.iter().zip(psbt.unsigned_tx.input.iter()) {
         let prevout = get_prevout_script(psbt_input, txin)?;
-        let full_txin = build_full_txin(txin, psbt_input)?;
 
-        let maybe_secret_key = extract_pubkey(full_txin.clone(), &prevout)
-            .map(|pubkey_data| match pubkey_data {
-                (SpInputs::Tr, even_tr_output_key) => {
-                    match get_taproot_secret(psbt_input, k, secp) {
-                        Ok(Some(secret)) => {
-                            let (xonly, _) = secret.x_only_public_key(secp);
-                            if even_tr_output_key == xonly.public_key(Parity::Even) {
-                                Ok(Some(secret))
-                            } else {
-                                Err(SpSendError::KeyError)
+        let maybe_secret_key = if let Ok(Some(secret)) = get_sp_secret(psbt_input, k, secp) {
+            Some(secret)
+        } else {
+            let full_txin = build_full_txin(txin, psbt_input)?;
+            extract_pubkey(full_txin.clone(), &prevout)
+                .map(|pubkey_data| match pubkey_data {
+                    (SpInputs::Tr, even_tr_output_key) => {
+                        match get_taproot_secret(psbt_input, k, secp) {
+                            Ok(Some(secret)) => {
+                                let (xonly, _) = secret.x_only_public_key(secp);
+                                if even_tr_output_key == xonly.public_key(Parity::Even) {
+                                    Ok(Some(secret))
+                                } else {
+                                    Err(SpSendError::KeyError)
+                                }
                             }
+                            Ok(None) => Ok(None),
+                            Err(_) => Err(SpSendError::KeyError),
                         }
-                        Ok(None) => Ok(None),
-                        Err(_) => Err(SpSendError::KeyError),
                     }
-                }
-                _ => get_non_taproot_secret(psbt_input, k, secp).map_err(|_| SpSendError::KeyError),
-            })
-            .transpose()?
-            .flatten();
+                    _ => get_non_taproot_secret(psbt_input, k, secp)
+                        .map_err(|_| SpSendError::KeyError),
+                })
+                .transpose()?
+                .flatten()
+        };
 
         if let Some(secret_key) = maybe_secret_key {
             data_for_partial_secret
