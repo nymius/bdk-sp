@@ -3,10 +3,7 @@ use bdk_chain::{Anchor, BlockId, Merge, TxGraph, TxPosInBlock, tx_graph};
 use bdk_sp::{
     bitcoin::{
         Block, Network, OutPoint, ScriptBuf, Transaction, TxOut, Txid,
-        key::{
-            Secp256k1,
-            constants::{GENERATOR_X, GENERATOR_Y},
-        },
+        key::Secp256k1,
         secp256k1::{PublicKey, Scalar, SecretKey},
     },
     compute_shared_secret,
@@ -420,15 +417,15 @@ impl SpPub {
 
     pub fn create_label(&self, num: u32) -> Label {
         let secp = Secp256k1::verification_only();
-        let mut uncompressed_generator_point = [0x04; 65];
-        uncompressed_generator_point[1..33].clone_from_slice(&GENERATOR_X);
-        uncompressed_generator_point[33..65].clone_from_slice(&GENERATOR_Y);
-        let generator_secp256k1 = PublicKey::from_slice(&uncompressed_generator_point)
-            .expect("not possible as public key is the generator point in the secp256k1 curve");
         let tweak = get_label_tweak(self.scan_sk, num);
-        let point = generator_secp256k1
+        let tweaked_spend_pk = self
+            .spend_pk
             .add_exp_tweak(&secp, &tweak)
             .expect("computationally unreachable: tweak is the output of a hash function");
+        let negated_spend_pk = self.spend_pk.negate(&secp);
+        let point = tweaked_spend_pk.combine(&negated_spend_pk).expect(
+            "computationally unreachable: tweaked_spend_pk and spend_pk are valid public keys",
+        );
         Label { num, tweak, point }
     }
 }
