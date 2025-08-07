@@ -163,7 +163,7 @@ fn main() -> anyhow::Result<()> {
         Commands::Code { label } => {
             let mut obj = serde_json::Map::new();
             let maybe_address = if let Some(num) = label {
-                wallet.get_labeled_address(num).ok()
+                wallet.get_labelled_address(num).ok()
             } else {
                 Some(wallet.get_address())
             };
