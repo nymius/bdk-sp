@@ -28,7 +28,6 @@ use indexer::{
             descriptor::{DescriptorSecretKey, DescriptorType},
         },
     },
-    indexes::SpIndex,
 };
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
@@ -236,20 +235,39 @@ impl SpWallet {
     }
 
     pub fn get_address(&self) -> SilentPaymentCode {
-        self.indexer.get_address(self.network)
+        let secp = Secp256k1::signing_only();
+        let scan_pk = self.indexer.scan_sk().public_key(&secp);
+        SilentPaymentCode::new_v0(scan_pk, *self.indexer.spend_pk(), self.network)
     }
 
-    pub fn get_labeled_address(&mut self, num: u32) -> Result<SilentPaymentCode, SpWalletError> {
+    pub fn get_labelled_address(&mut self, num: u32) -> Result<SilentPaymentCode, SpWalletError> {
         if num == Self::CHANGE_LABEL {
             Err(SpWalletError::ReservedLabel)
         } else {
-            Ok(self.indexer.get_labeled_address(num, self.network))
+            let base_sp_code = self.get_address();
+            let label = if let Some(label) = self.indexer.index().get_label(num) {
+                label
+            } else {
+                self.stage.indexer.merge(self.indexer.add_label(num));
+                self.indexer.index().get_label(num).expect("just added")
+            };
+
+            Ok(base_sp_code
+                .add_label(label)
+                .expect("computationally unreachable: tweak is the output of a hash function"))
         }
     }
 
     pub fn get_change_address(&mut self) -> SilentPaymentCode {
-        self.indexer
-            .get_labeled_address(Self::CHANGE_LABEL, self.network)
+        let change_label = self
+            .indexer
+            .index()
+            .get_label(Self::CHANGE_LABEL)
+            .expect("change label should always be present");
+        let base_sp_code = self.get_address();
+        base_sp_code
+            .add_label(change_label)
+            .expect("computationally unreachable: tweak is the output of a hash function")
     }
 
     pub fn balance(&self) -> Balance {
