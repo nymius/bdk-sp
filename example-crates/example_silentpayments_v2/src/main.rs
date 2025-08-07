@@ -436,6 +436,11 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
+    let db = &mut *db.lock().unwrap();
+    if let Some(changeset) = wallet.take_staged() {
+        db.append(&changeset)?;
+    }
+
     Ok(())
 }
 
