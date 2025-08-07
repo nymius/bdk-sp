@@ -118,7 +118,13 @@ impl<A: bdk_chain::Anchor> SpIndexerV2<A> {
     /// Scans a transaction for relevant outpoints, which are stored and indexed internally.
     pub fn index_tx(&mut self, tx: &Transaction, partial_secret: &PublicKey) -> ChangeSet<A> {
         let mut changeset = ChangeSet::default();
-        match self.scan_tx(tx, partial_secret) {
+        let ecdh_shared_secret = compute_shared_secret(&self.sp_pub.scan_sk, partial_secret);
+        match scan_txouts(
+            self.sp_pub.spend_pk,
+            &self.index.label_lookup,
+            tx,
+            ecdh_shared_secret,
+        ) {
             Ok(spouts) if !spouts.is_empty() => {
                 let txid = tx.compute_txid();
                 self.index.index_partial_secret(txid, *partial_secret);
@@ -156,20 +162,6 @@ impl<A: bdk_chain::Anchor> SpIndexerV2<A> {
                 .contains_key(&input.previous_output)
         });
         output_matches || input_matches
-    }
-
-    fn scan_tx(
-        &self,
-        tx: &Transaction,
-        partial_secret: &PublicKey,
-    ) -> Result<Vec<SpOut>, SpReceiveError> {
-        let ecdh_shared_secret = compute_shared_secret(&self.sp_pub.scan_sk, partial_secret);
-        scan_txouts(
-            self.sp_pub.spend_pk,
-            &self.index.label_lookup,
-            tx,
-            ecdh_shared_secret,
-        )
     }
 
     pub fn insert_anchor(&mut self, txid: Txid, anchor: A) -> ChangeSet<A> {
