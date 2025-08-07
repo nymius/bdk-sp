@@ -318,7 +318,7 @@ fn main() -> anyhow::Result<()> {
                 }
             }
 
-            let mut sp_recipients: Vec<SilentPaymentCode> = vec![];
+            let mut sp_recipients: Vec<SilentPaymentCode> = vec![wallet.get_change_address()];
             if let Some(sp_codes) = maybe_sp_codes {
                 for (sp_code, value) in sp_codes {
                     if sp_code.network != wallet.network() {
