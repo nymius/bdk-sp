@@ -1,8 +1,7 @@
 use bdk_sp::{
     bitcoin::{
-        Block, PublicKey, Transaction, Txid,
+        Block, Transaction, Txid,
         absolute::{self, Height, LockTime, Time},
-        bip32::{ChildNumber, Fingerprint},
         secp256k1,
     },
     encoding::SilentPaymentCode,
@@ -11,7 +10,6 @@ use bdk_tx::{
     CanonicalUnspents, InputCandidates, TxStatus, TxWithStatus,
     miniscript::{
         DescriptorPublicKey,
-        descriptor::{SinglePub, SinglePubKey},
         plan::{Assets, Plan},
     },
 };
@@ -78,26 +76,6 @@ pub enum SpWalletError {
 
 impl SpWallet {
     const CHANGE_LABEL: u32 = 0;
-
-    fn key_origin_placeholder(&self) -> (Fingerprint, DerivationPath) {
-        let fingerprint = Fingerprint::from([0x0, 0x3, 0x5, 0x2]);
-        let derivation_path = DerivationPath::from(vec![
-            ChildNumber::Hardened { index: 352 },
-            ChildNumber::Hardened { index: 0 },
-            ChildNumber::Hardened { index: 0 },
-            ChildNumber::Normal { index: 0 },
-        ]);
-        (fingerprint, derivation_path)
-    }
-
-    fn descriptor_placeholder(&self) -> DescriptorPublicKey {
-        let key = SinglePubKey::FullKey(PublicKey::new(*self.indexer.spend_pk()));
-        let single_pub = SinglePub {
-            origin: Some(self.key_origin_placeholder()),
-            key,
-        };
-        DescriptorPublicKey::Single(single_pub)
-    }
 
     pub fn new(
         genesis_hash: BlockHash,
