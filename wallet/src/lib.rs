@@ -1,6 +1,6 @@
 use bdk_sp::{
     bitcoin::{
-        Block, PublicKey, ScriptBuf, Transaction, Txid,
+        Block, PublicKey, Transaction, Txid,
         absolute::{self, Height, LockTime, Time},
         bip32::{ChildNumber, Fingerprint},
         secp256k1,
@@ -10,7 +10,7 @@ use bdk_sp::{
 use bdk_tx::{
     CanonicalUnspents, InputCandidates, TxStatus, TxWithStatus,
     miniscript::{
-        DefiniteDescriptorKey, DescriptorPublicKey,
+        DescriptorPublicKey,
         descriptor::{SinglePub, SinglePubKey},
         plan::{Assets, Plan},
     },
@@ -208,16 +208,6 @@ impl SpWallet {
                 .filter_map(|(_, op)| Some((*op, self.plan_of_output(&assets)?))),
         );
         InputCandidates::new([], can_select)
-    }
-
-    pub fn get_change_descriptor_placeholder(&self) -> Descriptor<DefiniteDescriptorKey> {
-        let single = self.descriptor_placeholder();
-        let desc: Descriptor<DescriptorPublicKey> = format!("tr({single})").parse().unwrap();
-        desc.at_derivation_index(0).unwrap()
-    }
-
-    pub fn is_change(&self, script_pubkey: ScriptBuf) -> bool {
-        self.get_change_descriptor_placeholder().script_pubkey() == script_pubkey
     }
 
     // TODO: Use median time to get real tip time
