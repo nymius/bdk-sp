@@ -16,7 +16,7 @@ use std::{
 };
 
 #[allow(unused)]
-#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Ord, Eq)]
 pub struct Label {
     pub num: u32,
     pub tweak: Scalar,
