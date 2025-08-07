@@ -20,6 +20,7 @@ use std::{
     collections::{BTreeMap, HashMap},
 };
 
+pub mod sign;
 mod tests;
 
 /// A script pubkey paired with its corresponding secret key for silent payment derivation.
