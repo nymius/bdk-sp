@@ -55,10 +55,12 @@ impl<A: bdk_chain::Anchor> SpIndexerV2<A> {
         }
     }
 
-    pub fn add_label(&mut self, num: u32) -> Label {
+    pub fn add_label(&mut self, num: u32) -> ChangeSet<A> {
+        let mut changeset = ChangeSet::default();
         let label = self.sp_pub.create_label(num);
         self.index.index_label(&label);
-        label
+        changeset.label_lookup.insert(label);
+        changeset
     }
 
     pub fn get_address(&self, network: Network) -> SilentPaymentCode {
@@ -68,10 +70,13 @@ impl<A: bdk_chain::Anchor> SpIndexerV2<A> {
     }
 
     pub fn get_labeled_address(&mut self, num: u32, network: Network) -> SilentPaymentCode {
-        let label_tweak = self
-            .index
-            .get_label(num)
-            .unwrap_or(self.add_label(num).tweak);
+        let label_tweak = if let Some(label) = self.index.get_label(num) {
+            label
+        } else {
+            let _ = self.add_label(num);
+            self.index.get_label(num).expect("just added")
+        };
+
         let sp_code = self.get_address(network);
         sp_code
             .add_label(label_tweak)
@@ -120,8 +125,9 @@ impl<A: bdk_chain::Anchor> SpIndexerV2<A> {
                 for spout in spouts {
                     self.index.index_spout(spout.outpoint, spout);
                 }
-                changeset.txid_to_partial_secret = self.index.txid_to_partial_secret.clone();
-                changeset.label_lookup = self.index.label_lookup.iter().map(Into::into).collect();
+                changeset
+                    .txid_to_partial_secret
+                    .insert(txid, *partial_secret);
                 changeset
             }
             _ => changeset,
