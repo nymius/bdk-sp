@@ -20,6 +20,7 @@ use std::{
     collections::{BTreeMap, HashMap},
 };
 
+pub mod sign;
 mod tests;
 
 /// A script pubkey paired with its corresponding secret key for silent payment derivation.
@@ -332,6 +333,7 @@ fn build_full_txin(txin: &TxIn, psbt_input: &psbt::Input) -> Result<TxIn, SpSend
     }
 }
 
+#[allow(unused)]
 fn get_sp_secret<C, K, E>(
     psbt_input: &psbt::Input,
     k: &K,
