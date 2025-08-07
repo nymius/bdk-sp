@@ -38,7 +38,7 @@ impl<A: bdk_chain::Anchor> TryFrom<ChangeSet<A>> for SpIndexerV2<A> {
         match (scan_sk, spend_pk) {
             (Some(scan_sk), Some(spend_pk)) => {
                 let mut indexer = SpIndexerV2::new(scan_sk, spend_pk);
-                let _ = indexer.apply_changeset(stage);
+                indexer.apply_changeset(stage);
                 Ok(indexer)
             }
             _ => Err(()),
@@ -99,20 +99,24 @@ impl<A: bdk_chain::Anchor> SpIndexerV2<A> {
         &self.index
     }
 
-    #[allow(unused)]
-    fn apply_changeset(&mut self, changeset: ChangeSet<A>) -> ChangeSet<A> {
-        let mut initial_changeset = self.initial_changeset();
-        if initial_changeset.spend_pk == changeset.spend_pk
-            && initial_changeset.scan_sk == changeset.scan_sk
+    pub fn apply_changeset(&mut self, changeset: ChangeSet<A>) {
+        if changeset
+            .scan_sk
+            .is_some_and(|scan_sk| scan_sk == *self.scan_sk())
+            && changeset
+                .spend_pk
+                .is_some_and(|spend_pk| spend_pk == *self.spend_pk())
         {
             self.graph.apply_changeset(changeset.graph);
+            changeset.label_lookup.iter().for_each(|label| {
+                self.index.index_label(label);
+            });
             for (txid, partial_secret) in changeset.txid_to_partial_secret.iter() {
                 if let Some(tx) = self.graph.get_tx(*txid) {
-                    initial_changeset.merge(self.index_tx(tx.as_ref(), partial_secret));
+                    self.index_tx(tx.as_ref(), partial_secret);
                 }
             }
         }
-        initial_changeset
     }
 
     /// Scans a transaction for relevant outpoints, which are stored and indexed internally.
@@ -343,7 +347,6 @@ where
         serialize = "A: Ord + serde::Serialize"
     ))
 )]
-#[must_use]
 pub struct ChangeSet<A> {
     pub scan_sk: Option<SecretKey>,
     pub spend_pk: Option<PublicKey>,
