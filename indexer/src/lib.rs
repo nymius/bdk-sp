@@ -37,7 +37,7 @@ impl<A: bdk_chain::Anchor> TryFrom<ChangeSet<A>> for SpIndexerV2<A> {
         } = value;
         match (scan_sk, spend_pk) {
             (Some(scan_sk), Some(spend_pk)) => {
-                let mut indexer = SpIndexerV2::new(scan_sk, spend_pk, SpIndex::default());
+                let mut indexer = SpIndexerV2::new(scan_sk, spend_pk);
                 let _ = indexer.apply_changeset(stage);
                 Ok(indexer)
             }
@@ -47,10 +47,10 @@ impl<A: bdk_chain::Anchor> TryFrom<ChangeSet<A>> for SpIndexerV2<A> {
 }
 
 impl<A: bdk_chain::Anchor> SpIndexerV2<A> {
-    pub fn new(scan_sk: SecretKey, spend_pk: PublicKey, index: SpIndex) -> Self {
+    pub fn new(scan_sk: SecretKey, spend_pk: PublicKey) -> Self {
         Self {
             sp_pub: SpPub::new(scan_sk, spend_pk),
-            index,
+            index: SpIndex::default(),
             graph: TxGraph::default(),
         }
     }

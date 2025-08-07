@@ -142,7 +142,7 @@ impl SpWallet {
             _ => unimplemented!("only supported single xkeys"),
         };
 
-        let mut indexer = SpIndexer::new(scan_sk, spend_pk, SpIndex::default());
+        let mut indexer = SpIndexer::new(scan_sk, spend_pk);
         let (chain, _) = LocalChain::from_genesis_hash(genesis_hash);
 
         let mut stage = ChangeSet {
