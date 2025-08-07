@@ -12,7 +12,7 @@ use bitcoin::{
     bip32::KeySource,
     key::{Parity, Secp256k1, TweakedPublicKey, Verification},
     psbt::{self, GetKey, KeyRequest},
-    secp256k1::{SecretKey, Signing},
+    secp256k1::{PublicKey, Scalar, SecretKey, Signing},
     PrivateKey, Psbt, ScriptBuf, TapLeafHash, TapTweakHash, TxIn, TxOut, XOnlyPublicKey,
 };
 use std::{
@@ -330,6 +330,48 @@ fn build_full_txin(txin: &TxIn, psbt_input: &psbt::Input) -> Result<TxIn, SpSend
     } else {
         Err(SpSendError::MissingWitness)
     }
+}
+
+fn get_sp_secret<C, K, E>(
+    psbt_input: &psbt::Input,
+    k: &K,
+    secp: &Secp256k1<C>,
+) -> Result<Option<SecretKey>, E>
+where
+    C: Signing + Verification,
+    K: GetKey<Error = E>,
+{
+    for (key, value) in psbt_input.proprietary.clone() {
+        if key.prefix == b"bip352".to_vec() && key.subtype == sign::SPEND_PK_SUBTYPE {
+            let spend_pk = PublicKey::from_slice(&key.key).expect("will fix later");
+            let mut scalar = [0u8; 32];
+            scalar.clone_from_slice(value.as_slice());
+
+            let tweak = Scalar::from_be_bytes(scalar).expect("will fix later");
+            let output_key = if let Some(txout) = &psbt_input.witness_utxo {
+                XOnlyPublicKey::from_slice(&txout.script_pubkey.as_bytes()[2..])
+                    .expect("p2tr script")
+            } else {
+                continue;
+            };
+            let tweaked_spend_pk = spend_pk
+                .add_exp_tweak(secp, &tweak)
+                .expect("will fix later");
+            let spend_sk = if let Ok(Some(sk)) =
+                k.get_key(KeyRequest::Pubkey(bitcoin::PublicKey::new(spend_pk)), secp)
+            {
+                sk
+            } else {
+                continue;
+            };
+            if tweaked_spend_pk.x_only_public_key().0 == output_key {
+                let sk = spend_sk.inner.add_tweak(&tweak).expect("will fix later");
+                return Ok(Some(sk));
+            }
+        }
+    }
+
+    Ok(None)
 }
 
 /// Retrieves the secret key for a taproot input from [`Psbt`] data.
