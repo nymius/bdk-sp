@@ -110,6 +110,13 @@ pub struct SpArgs {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum Commands {
+    DeriveSpForTx {
+        #[clap(flatten)]
+        rpc_args: RpcArgs,
+        txid: Txid,
+        order: u32,
+        label: Option<u32>,
+    },
     Create {
         /// Network
         #[clap(long, short, default_value = "signet")]
@@ -160,6 +167,42 @@ fn main() -> anyhow::Result<()> {
     };
 
     match args.command {
+        Commands::DeriveSpForTx {
+            rpc_args,
+            txid,
+            order,
+            label: maybe_label,
+        } => {
+            let rpc_client = rpc_args.new_client()?;
+
+            let tx = rpc_client.get_raw_transaction(&txid, None).unwrap();
+            let partial_secret = get_partial_secret(&rpc_client, &tx).expect("will fix later");
+            let ecdh_shared_secret =
+                compute_shared_secret(wallet.indexer().scan_sk(), &partial_secret);
+            let maybe_label =
+                maybe_label.and_then(|label| wallet.indexer().index().num_to_label.get(&label));
+            let spk = get_silentpayment_script_pubkey(
+                wallet.indexer().spend_pk(),
+                &ecdh_shared_secret,
+                order,
+                maybe_label,
+            );
+            let mut obj = serde_json::Map::new();
+            obj.insert("txid".to_string(), json!(txid.to_string()));
+            obj.insert("script_pubkey".to_string(), json!(spk.to_string()));
+            obj.insert(
+                "ecdh_shared_secret".to_string(),
+                json!(ecdh_shared_secret.to_string()),
+            );
+            obj.insert("order".to_string(), json!(order.to_string()));
+            if let Some(label) = maybe_label {
+                obj.insert(
+                    "label".to_string(),
+                    json!(label.serialize().as_hex().to_string()),
+                );
+            };
+            println!("{}", serde_json::to_string_pretty(&obj)?);
+        }
         Commands::Code { label } => {
             let mut obj = serde_json::Map::new();
             let maybe_address = if let Some(num) = label {
