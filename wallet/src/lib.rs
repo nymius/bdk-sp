@@ -8,8 +8,10 @@ use bdk_sp::{
 };
 use bdk_tx::{
     CanonicalUnspents, InputCandidates, TxStatus, TxWithStatus,
+    bitcoin::XOnlyPublicKey,
     miniscript::{
         DescriptorPublicKey,
+        descriptor::{SinglePub, SinglePubKey},
         plan::{Assets, Plan},
     },
 };
@@ -163,6 +165,45 @@ impl SpWallet {
                 CanonicalizationParams::default(),
             )
             .map(|c_tx| (c_tx.tx_node.tx, status_from_position(c_tx.chain_position)))
+    }
+
+    pub fn spending_plan(&self, xonly: XOnlyPublicKey) -> Option<Plan> {
+        let tip = self.chain.tip().block_id();
+        let single = DescriptorPublicKey::Single(SinglePub {
+            origin: None,
+            key: SinglePubKey::XOnly(xonly),
+        });
+        let desc: Descriptor<DescriptorPublicKey> = format!("tr({single})").parse().unwrap();
+        let definite_descriptor = desc.at_derivation_index(0).unwrap();
+        let assets = Assets::new()
+            .after(LockTime::from_height(tip.height).expect("must be valid height"))
+            .add(single);
+        let plan = definite_descriptor.plan(&assets).ok()?;
+        Some(plan)
+    }
+
+    pub fn _all_candidates(&self) -> InputCandidates {
+        let canon_utxos = CanonicalUnspents::new(self.canonical_txs());
+        let unspent_outpoints = self
+            .graph()
+            .try_filter_chain_unspents(
+                self.chain(),
+                self.chain().tip().block_id(),
+                CanonicalizationParams::default(),
+                self.indexer()
+                    .index()
+                    .by_xonly()
+                    .map(|(xonly, outpoint)| (xonly, *outpoint)),
+            )
+            .unwrap()
+            .filter_map(|(xonly, full_txout)| {
+                self.spending_plan(xonly)
+                    .map(|plan| (full_txout.outpoint, plan))
+            });
+
+        let can_select = canon_utxos.try_get_unspents(unspent_outpoints);
+
+        InputCandidates::new([], can_select)
     }
 
     pub fn plan_of_output(&self, assets: &Assets) -> Option<Plan> {
