@@ -29,6 +29,7 @@ use indexer::{
 };
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
+pub use bdk_tx;
 pub mod signers;
 
 #[derive(Default, Debug, Clone, PartialEq)]
