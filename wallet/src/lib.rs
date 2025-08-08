@@ -182,7 +182,7 @@ impl SpWallet {
         Some(plan)
     }
 
-    pub fn _all_candidates(&self) -> InputCandidates {
+    pub fn all_candidates(&self) -> InputCandidates {
         let canon_utxos = CanonicalUnspents::new(self.canonical_txs());
         let unspent_outpoints = self
             .graph()
@@ -203,33 +203,6 @@ impl SpWallet {
 
         let can_select = canon_utxos.try_get_unspents(unspent_outpoints);
 
-        InputCandidates::new([], can_select)
-    }
-
-    pub fn plan_of_output(&self, assets: &Assets) -> Option<Plan> {
-        let single = self.descriptor_placeholder();
-        let desc: Descriptor<DescriptorPublicKey> = format!("tr({single})").parse().unwrap();
-        let definite_descriptor = desc.at_derivation_index(0).unwrap();
-        let plan = definite_descriptor.plan(assets).ok()?;
-        Some(plan)
-    }
-
-    pub fn assets(&self) -> Assets {
-        let tip = self.chain.tip().block_id();
-        Assets::new()
-            .after(LockTime::from_height(tip.height).expect("must be valid height"))
-            .add(self.descriptor_placeholder())
-    }
-
-    pub fn all_candidates(&self) -> InputCandidates {
-        let assets = self.assets();
-        let canon_utxos = CanonicalUnspents::new(self.canonical_txs());
-        let can_select = canon_utxos.try_get_unspents(
-            self.indexer()
-                .index()
-                .by_xonly()
-                .filter_map(|(_, op)| Some((*op, self.plan_of_output(&assets)?))),
-        );
         InputCandidates::new([], can_select)
     }
 
