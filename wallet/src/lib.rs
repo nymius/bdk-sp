@@ -76,6 +76,9 @@ pub enum SpWalletError {
 
 impl SpWallet {
     const CHANGE_LABEL: u32 = 0;
+    // Taproot key path spend:
+    // scriptSigLen(4) + stackLen(1) + stack[Sig]Len(1) + stack[Sig](65)
+    pub const DEFAULT_SPENDING_WEIGHT: u64 = 4 + 1 + 1 + 65;
 
     pub fn new(
         genesis_hash: BlockHash,
