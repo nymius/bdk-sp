@@ -82,7 +82,7 @@ impl SpWallet {
 
     pub fn new(
         genesis_hash: BlockHash,
-        descriptor_str: &str,
+        tr_xprv: &str,
         network: Network,
     ) -> Result<Self, SpWalletError> {
         let scan_derivation = "1h/0";
@@ -101,7 +101,7 @@ impl SpWallet {
             .unwrap();
 
         let secp = Secp256k1::signing_only();
-        let (descriptor, keymap) = Descriptor::parse_descriptor(&secp, descriptor_str).unwrap();
+        let (descriptor, keymap) = Descriptor::parse_descriptor(&secp, tr_xprv).unwrap();
 
         if descriptor.desc_type() != DescriptorType::Tr {
             return Err(SpWalletError::NonTaprootDescriptor);
