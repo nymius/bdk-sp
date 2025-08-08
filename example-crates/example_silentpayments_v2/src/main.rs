@@ -14,12 +14,12 @@ use bdk_sp::{
     send::psbt::derive_sp,
 };
 use bdk_sp_wallet::{
+    bdk_tx::{
+        filter_unspendable_now, group_by_spk, selection_algorithm_lowest_fee_bnb, Output,
+        PsbtParams, SelectorParams,
+    },
     signers::{get_spend_sk, populate_sp_keymap},
     ChangeSet, SpWallet,
-};
-use bdk_tx::{
-    filter_unspendable_now, group_by_spk, selection_algorithm_lowest_fee_bnb, Output, PsbtParams,
-    SelectorParams,
 };
 use clap::{self, ArgGroup, Args, Parser, Subcommand};
 use rand::RngCore;
