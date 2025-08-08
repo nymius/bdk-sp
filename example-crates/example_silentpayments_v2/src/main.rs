@@ -12,6 +12,10 @@ use bdk_sp::{
     encoding::SilentPaymentCode,
     receive::compute_tweak_data,
     send::psbt::derive_sp,
+    send::psbt::{
+        derive_sp,
+        sign::{add_sp_data_to_input, sign_sp},
+    },
 };
 use bdk_sp_wallet::{
     bdk_tx::{
@@ -407,66 +411,33 @@ fn main() -> anyhow::Result<()> {
             let finalizer = selection.clone().into_finalizer();
             let descriptor = descriptor.expect("already checked is some");
             let spend_sk = get_spend_sk(&descriptor, wallet.network());
-            let signer = populate_sp_keymap(&spend_sk, wallet.indexer().index(), wallet.network());
-            let _ = psbt.sign(&signer, &secp);
-            let _res = finalizer.finalize(&mut psbt);
 
-            if !sp_recipients.is_empty() {
-                for (plan_input, psbt_input) in selection.inputs.iter().zip(psbt.inputs.iter_mut())
-                {
-                    if let Some(plan) = plan_input.plan() {
-                        // add bip32 and tap key derivation data
-                        plan.update_psbt_input(psbt_input);
-                    }
-                }
-
-                // replace outputs by real final silentpayment script pubkeys
-                derive_sp(&mut psbt, &signer, &sp_recipients, &secp)?;
-
-                for psbt_input in psbt.inputs.iter_mut() {
-                    psbt_input.final_script_sig = None;
-                    psbt_input.final_script_witness = None;
-                }
-
-                let sighash_type = TapSighashType::Default;
-                let prevouts = psbt
-                    .inputs
-                    .iter()
-                    .map(|x| x.witness_utxo.clone().unwrap())
-                    .collect::<Vec<TxOut>>();
-                let prevouts = Prevouts::All(&prevouts);
-
-                let sighash = SighashCache::new(&mut psbt.unsigned_tx)
-                    .taproot_key_spend_signature_hash(0, &prevouts, sighash_type)
-                    .expect("failed to construct sighash");
-
-                // Sign the sighash using the secp256k1 library (exported by rust-bitcoin).
-                let msg = Message::from(sighash);
-
-                for i in 0..psbt.inputs.len() {
-                    let psbt_input = &mut psbt.inputs[i];
-                    if let Some(txout) = &psbt_input.witness_utxo {
-                        if let Some(tweak) =
-                            wallet.indexer().index().get_by_script(&txout.script_pubkey)
-                        {
-                            let sk = spend_sk.add_tweak(&Scalar::from(*tweak))?;
-                            let keypair = Keypair::from_secret_key(&secp, &sk);
-                            let (x_only_internal, _parity) = XOnlyPublicKey::from_keypair(&keypair);
-
-                            let signature = secp.sign_schnorr(&msg, &keypair);
-
-                            let signature = Signature {
-                                signature,
-                                sighash_type,
-                            };
-                            psbt_input.tap_key_sig = Some(signature);
-                            psbt_input.tap_internal_key = Some(x_only_internal);
-                        }
-                    }
-
-                    let _ = finalizer.finalize(&mut psbt);
-                }
+            for i in 0..psbt.inputs.len() {
+                let tweak = wallet
+                    .indexer()
+                    .index()
+                    .get_by_script(&psbt.inputs[i].witness_utxo.clone().unwrap().script_pubkey)
+                    .unwrap();
+                add_sp_data_to_input(
+                    &mut psbt,
+                    i,
+                    *wallet.indexer().spend_pk(),
+                    Scalar::from(*tweak),
+                );
             }
+
+            let spend_prv = PrivateKey::new(spend_sk, wallet.network());
+            let spend_pub = bitcoin::PublicKey::new(*wallet.indexer().spend_pk());
+            assert_eq!(spend_prv.public_key(&secp), spend_pub);
+            let mut spend_keys = HashMap::<bitcoin::PublicKey, PrivateKey>::new();
+            spend_keys.insert(spend_pub, spend_prv);
+
+            // replace outputs by real final silentpayment script pubkeys
+            derive_sp(&mut psbt, &spend_keys, &sp_recipients, &secp)?;
+
+            sign_sp(&mut psbt, &spend_keys, &secp);
+
+            let _res = finalizer.finalize(&mut psbt);
 
             let tx = psbt.extract_tx()?;
 
