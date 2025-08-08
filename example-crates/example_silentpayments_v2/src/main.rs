@@ -391,7 +391,10 @@ fn main() -> anyhow::Result<()> {
                     SelectorParams::new(
                         FeeRate::from_sat_per_vb_unchecked(10),
                         outputs,
-                        wallet.get_change_descriptor_placeholder(),
+                        bdk_tx::ChangeDescriptor::Manual {
+                            script_pubkey: wallet.get_change_address().get_placeholder_p2tr_spk(),
+                            max_weight_to_satisfy_wu: SpWallet::DEFAULT_SPENDING_WEIGHT,
+                        },
                         bdk_tx::ChangePolicyType::NoDustAndLeastWaste { longterm_feerate },
                     ),
                 )?;
