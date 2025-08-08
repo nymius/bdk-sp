@@ -485,9 +485,10 @@ pub fn init_or_load(db_magic: &[u8], db_path: &str) -> anyhow::Result<Option<Ini
 
             let m = bip32::Xpriv::new_master(network, &seed)?;
             let fp = m.fingerprint(&secp);
-            let tr_desc_str = format!("tr([{fp}]{m})");
+            let tr_xprv = format!("tr([{fp}]{m})");
 
-            println!("{tr_desc_str}");
+            let mut obj = serde_json::Map::new();
+            obj.insert("tr_xprv".to_string(), json!(tr_xprv.to_string()));
 
             let block_hash = if let Some(hash) = genesis_hash {
                 hash
@@ -496,7 +497,7 @@ pub fn init_or_load(db_magic: &[u8], db_path: &str) -> anyhow::Result<Option<Ini
                 genesis_block.block_hash()
             };
 
-            let wallet = SpWallet::new(block_hash, &tr_desc_str, network).unwrap();
+            let wallet = SpWallet::new(block_hash, &tr_xprv, network).unwrap();
             let mut db = Store::<ChangeSet>::create(DB_MAGIC, DB_PATH)?;
             if let Some(stage) = wallet.staged() {
                 db.append(stage).unwrap();
