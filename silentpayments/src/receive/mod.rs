@@ -106,8 +106,8 @@ pub fn scan_txouts(
     let mut outputs_to_check = tx
         .output
         .iter()
-        .filter(|x| x.script_pubkey.is_p2tr())
-        .enumerate()
+        .enumerate() // Should enumerate before filtering to get the right outpoints
+        .filter(|(_idx, x)| x.script_pubkey.is_p2tr())
         .map(|(idx, txout)| (OutPoint::new(txid, idx as u32), txout.clone()))
         .collect::<Vec<(OutPoint, TxOut)>>();
 
