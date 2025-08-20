@@ -25,6 +25,16 @@ use bdk_sp::{
         sign::{add_sp_data_to_input, sign_sp},
     },
 };
+use bdk_sp_oracles::{
+    filters::kyoto::{FilterEvent, FilterSubscriber},
+    kyoto::{
+        self,
+        tokio::{self, select},
+        AddrV2, Client as KyotoClient, HeaderCheckpoint, IndexedBlock, Info, NodeBuilder,
+        ServiceFlags, TrustedPeer, UnboundedReceiver, Warning,
+    },
+    tweaks::blindbit::{BlindbitSubscriber, TweakEvent},
+};
 use bdk_sp_wallet::{
     bdk_tx::{
         self, filter_unspendable_now, group_by_spk, selection_algorithm_lowest_fee_bnb, Output,
@@ -34,10 +44,12 @@ use bdk_sp_wallet::{
     ChangeSet, SpWallet,
 };
 use clap::{self, ArgGroup, Args, Parser, Subcommand};
+use indexer::bdk_chain::BlockId;
 use rand::RngCore;
 use serde_json::json;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
+    net::{IpAddr, Ipv4Addr},
     str::FromStr,
     sync::Mutex,
     time::{Duration, Instant},
@@ -139,6 +151,9 @@ pub enum Commands {
         #[clap(long)]
         label: Option<u32>,
     },
+    ScanCbf {
+        tweak_server_url: String,
+    },
     Create {
         /// Network
         #[clap(long, short, default_value = "signet")]
@@ -186,7 +201,8 @@ pub enum Commands {
     Balance,
 }
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let subscriber = tracing_subscriber::FmtSubscriber::new();
     tracing::subscriber::set_global_default(subscriber).unwrap();
 
@@ -265,6 +281,151 @@ fn main() -> anyhow::Result<()> {
                     json!(address.to_string()),
                 );
                 println!("{}", serde_json::to_string_pretty(&obj)?);
+            }
+        }
+        Commands::ScanCbf { tweak_server_url } => {
+            async fn trace(
+                mut log_rx: kyoto::Receiver<String>,
+                mut info_rx: kyoto::Receiver<Info>,
+                mut warn_rx: UnboundedReceiver<Warning>,
+            ) {
+                loop {
+                    select! {
+                        log = log_rx.recv() => {
+                            if let Some(log) = log {
+                                tracing::info!("{log}");
+                            }
+                        }
+                        info = info_rx.recv() => {
+                            if let Some(info) = info {
+                                tracing::info!("{info}");
+                            }
+                        }
+                        warn = warn_rx.recv() => {
+                            if let Some(warn) = warn {
+                                tracing::warn!("{warn}");
+                            }
+                        }
+                    }
+                }
+            }
+
+            tracing::info!("Wallet main SP address: {}", wallet.get_address());
+
+            let sync_height = if wallet.birthday <= wallet.chain().tip().height() {
+                wallet.chain().tip().height()
+            } else {
+                wallet.birthday
+            };
+
+            tracing::info!("Synchronizing from block {sync_height}");
+
+            // Set up the light client
+            let checkpoint =
+                HeaderCheckpoint::closest_checkpoint_below_height(sync_height, wallet.network());
+            let peer_1 = IpAddr::V4(Ipv4Addr::new(95, 217, 198, 121));
+            let peer_2 = TrustedPeer::new(
+                AddrV2::Ipv4(Ipv4Addr::new(23, 137, 57, 100)),
+                None,
+                ServiceFlags::P2P_V2,
+            );
+            let builder = NodeBuilder::new(wallet.network());
+            let (node, client) = builder
+                .after_checkpoint(checkpoint)
+                .add_peers(vec![(peer_1, None).into(), peer_2])
+                .required_peers(2)
+                .build()
+                .unwrap();
+            let (changes_tx, changes_rx) = tokio::sync::mpsc::unbounded_channel::<FilterEvent>();
+            let (matches_tx, mut matches_rx) = tokio::sync::mpsc::unbounded_channel::<TweakEvent>();
+
+            let KyotoClient {
+                requester,
+                log_rx,
+                info_rx,
+                warn_rx,
+                event_rx,
+            } = client;
+
+            let (mut blindbit_subscriber, db_buffer) = BlindbitSubscriber::new(
+                wallet.indexer().clone(),
+                tweak_server_url,
+                wallet.network(),
+                changes_rx,
+                matches_tx,
+            )
+            .unwrap();
+
+            let mut filter_subscriber =
+                FilterSubscriber::new(db_buffer, event_rx, changes_tx, sync_height);
+
+            tracing::info!("Starting the node...");
+            tokio::task::spawn(async move {
+                if let Err(e) = node.run().await {
+                    return Err(e);
+                }
+                Ok(())
+            });
+
+            tracing::info!("Starting blindbit subscriber...");
+            tokio::task::spawn(async move { blindbit_subscriber.run().await });
+
+            tracing::info!("Initializing log loop...");
+            tokio::task::spawn(async move { trace(log_rx, info_rx, warn_rx).await });
+
+            tracing::info!("Starting filter subscriber...");
+            tokio::task::spawn(async move { filter_subscriber.run().await });
+
+            tracing::info!("Synchronizing wallet...");
+            loop {
+                if let Some(tweak_event) = matches_rx.recv().await {
+                    match tweak_event {
+                        TweakEvent::Matches((hash, spks_tweak_map)) => {
+                            tracing::info!("Checking matches...");
+                            if let Ok(rrx) = requester.request_block(hash) {
+                                if let Ok(Ok(IndexedBlock { height, ref block })) = rrx.await {
+                                    let checkpoint =
+                                        wallet.chain().tip().insert(BlockId { height, hash });
+                                    wallet.update_chain(checkpoint);
+
+                                    let mut partial_secrets = HashMap::<Txid, PublicKey>::new();
+                                    for tx in block.txdata.iter() {
+                                        let spks = tx
+                                            .output
+                                            .iter()
+                                            .filter(|txout| txout.script_pubkey.is_p2tr())
+                                            .map(|txout| {
+                                                txout
+                                                    .script_pubkey
+                                                    .to_bytes()
+                                                    .try_into()
+                                                    .expect("p2tr script, should succeed")
+                                            })
+                                            .collect::<HashSet<[u8; 34]>>();
+                                        if let Some(tweak) =
+                                            spks.iter().find_map(|spk| spks_tweak_map.get(spk))
+                                        {
+                                            partial_secrets.insert(tx.compute_txid(), *tweak);
+                                        }
+                                    }
+
+                                    if !partial_secrets.is_empty() {
+                                        tracing::info!("Block {hash} is relevant, indexing.");
+                                        wallet.apply_block_relevant(block, partial_secrets, height);
+                                    }
+                                }
+                            }
+                        }
+                        TweakEvent::Synced(new_tip) => {
+                            tracing::info!("Updating to last checkpoint");
+                            let checkpoint = wallet.chain().tip().insert(new_tip);
+                            wallet.update_chain(checkpoint);
+                            tracing::info!("Shutting Down");
+                            requester.shutdown().unwrap();
+                            break;
+                        }
+                    }
+                }
             }
         }
         Commands::ScanRpc { rpc_args } => {
