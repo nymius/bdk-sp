@@ -1,7 +1,11 @@
 [package]
-name = "example_silentpayments_v2"
+name = "bdk_sp_cli_v2"
 version = "0.1.0"
 edition = "2021"
+
+[[bin]]
+name = "sp-cli2"
+path = "src/main.rs"
 
 [dependencies]
 bdk_sp = { version = "0.1.0", path = "../../silentpayments/", features = ["serde", "psbt_sp_spend"]}
