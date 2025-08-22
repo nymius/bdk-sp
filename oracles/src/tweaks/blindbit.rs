@@ -4,8 +4,8 @@ use bitcoin::{
 };
 use futures::StreamExt;
 use indexer::{
-    SpIndexerV2 as SpIndexer,
     bdk_chain::{BlockId, ConfirmationBlockTime},
+    v2::SpIndexerV2 as SpIndexer,
 };
 use kyoto::{BlockFilter, BlockHash, UnboundedReceiver, tokio::sync::mpsc::UnboundedSender};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};

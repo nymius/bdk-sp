@@ -22,7 +22,6 @@ use bdk_tx::{
     },
 };
 use indexer::{
-    SpIndexerV2 as SpIndexer,
     bdk_chain::{
         Anchor, Balance, CanonicalizationParams, ChainPosition, CheckPoint, ConfirmationBlockTime,
         TxGraph,
@@ -34,6 +33,7 @@ use indexer::{
             descriptor::{DescriptorSecretKey, DescriptorType},
         },
     },
+    v2::SpIndexerV2 as SpIndexer,
 };
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
@@ -57,7 +57,7 @@ pub struct ChangeSet {
     /// Changes related to the local blockchain data.
     chain: local_chain::ChangeSet,
     /// Changes related to the Silent Payments indexer data.
-    indexer: indexer::ChangeSet<ConfirmationBlockTime>,
+    indexer: indexer::v2::ChangeSet<ConfirmationBlockTime>,
 }
 
 impl Merge for ChangeSet {
