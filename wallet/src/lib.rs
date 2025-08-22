@@ -16,7 +16,6 @@ use bdk_tx::{
     },
 };
 use indexer::{
-    SpIndexerV2 as SpIndexer,
     bdk_chain::{
         Anchor, Balance, CanonicalizationParams, ChainPosition, CheckPoint, ConfirmationBlockTime,
         TxGraph,
@@ -28,6 +27,7 @@ use indexer::{
             descriptor::{DescriptorSecretKey, DescriptorType},
         },
     },
+    v2::SpIndexerV2 as SpIndexer,
 };
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
@@ -41,7 +41,7 @@ pub struct ChangeSet {
     birthday: u32,
     network: Option<Network>,
     chain: local_chain::ChangeSet,
-    indexer: indexer::ChangeSet<ConfirmationBlockTime>,
+    indexer: indexer::v2::ChangeSet<ConfirmationBlockTime>,
 }
 
 impl Merge for ChangeSet {
