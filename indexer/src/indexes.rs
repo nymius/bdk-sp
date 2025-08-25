@@ -5,6 +5,7 @@ use bdk_sp::{
     },
     receive::{SpMeta, SpOut},
 };
+#[cfg(feature = "serde")]
 use serde::{
     Deserialize, Serialize,
     de::{self, Deserializer, SeqAccess, Visitor},
@@ -40,6 +41,7 @@ impl From<(&PublicKey, &(Scalar, u32))> for Label {
     }
 }
 
+#[cfg(feature = "serde")]
 impl Serialize for Label {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -54,6 +56,7 @@ impl Serialize for Label {
     }
 }
 
+#[cfg(feature = "serde")]
 impl<'de> Deserialize<'de> for Label {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -93,7 +96,10 @@ impl<'de> Deserialize<'de> for Label {
     }
 }
 
+#[cfg(feature = "serde")]
 pub struct ScalarBytes(pub Scalar);
+
+#[cfg(feature = "serde")]
 impl Serialize for ScalarBytes {
     fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
     where
@@ -102,6 +108,8 @@ impl Serialize for ScalarBytes {
         scalar_serde::serialize(&self.0, ser)
     }
 }
+
+#[cfg(feature = "serde")]
 impl<'de> Deserialize<'de> for ScalarBytes {
     fn deserialize<D>(de: D) -> Result<Self, D::Error>
     where
@@ -111,6 +119,7 @@ impl<'de> Deserialize<'de> for ScalarBytes {
     }
 }
 
+#[cfg(feature = "serde")]
 mod scalar_serde {
     use super::Scalar;
     use core::fmt;
