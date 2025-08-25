@@ -140,7 +140,8 @@ impl From<SpIndexes> for SpIndexesChangeSet {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[must_use]
 pub struct SpIndexesChangeSet {
     pub spouts: BTreeMap<OutPoint, SpOut>,
