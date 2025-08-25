@@ -1377,8 +1377,11 @@ mod update_outputs {
         let (priv_key, _, spk, _) = create_p2tr_input_data();
         let mut psbt = create_test_psbt(outputs);
 
-        let silent_payments =
-            get_sp_derivations(&psbt, &[(spk, priv_key.inner)], &[sp_code.clone()]);
+        let silent_payments = get_sp_derivations(
+            &psbt,
+            &[(spk, priv_key.inner)],
+            std::slice::from_ref(sp_code),
+        );
 
         let result = update_outputs(&mut psbt, &silent_payments);
 
@@ -1415,8 +1418,11 @@ mod update_outputs {
         let mut psbt = create_test_psbt(outputs.clone());
 
         let (priv_key, _, spk, _) = create_p2tr_input_data();
-        let silent_payments =
-            get_sp_derivations(&psbt, &[(spk, priv_key.inner)], &[sp_code.clone()]);
+        let silent_payments = get_sp_derivations(
+            &psbt,
+            &[(spk, priv_key.inner)],
+            std::slice::from_ref(sp_code),
+        );
 
         let result = update_outputs(&mut psbt, &silent_payments);
 
@@ -1502,8 +1508,11 @@ mod update_outputs {
         let mut psbt = create_test_psbt(outputs.clone());
 
         let (priv_key, _, spk, _) = create_p2tr_input_data();
-        let silent_payments =
-            get_sp_derivations(&psbt, &[(spk, priv_key.inner)], &[sp_code.clone()]);
+        let silent_payments = get_sp_derivations(
+            &psbt,
+            &[(spk, priv_key.inner)],
+            std::slice::from_ref(sp_code),
+        );
 
         let result = update_outputs(&mut psbt, &silent_payments);
 
