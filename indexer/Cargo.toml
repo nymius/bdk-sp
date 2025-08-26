@@ -6,10 +6,13 @@ authors.workspace = true
 
 [dependencies]
 bdk_bitcoind_rpc = "0.18.0"
-bdk_chain = { version = "0.21.1", features = ["serde"] }
+bdk_chain = { version = "0.23.0", features = ["serde"] }
 bdk_sp = { version = "0.1.0", path = "../silentpayments", features = ["serde"] }
 bitcoin = "0.32.6"
-serde = "1.0.219"
+serde = { version = "1.0.219", optional = true }
+
+[features]
+serde = ["dep:serde", "bitcoin/serde"]
 
 [lints]
 workspace = true

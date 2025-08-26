@@ -33,7 +33,7 @@ jobs:
           tool: cargo-mutants
       - name: Mutants
         run: |
-          cargo mutants --no-shuffle -vV --exclude "example-crates/**" --in-diff git.diff -- --all-targets
+          cargo mutants --no-shuffle -vV --exclude "cli/**" --in-diff git.diff -- --all-targets --all-features
       - name: Archive mutants.out
         uses: actions/upload-artifact@v4
         if: always()

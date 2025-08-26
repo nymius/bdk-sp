@@ -6,6 +6,8 @@ use bdk_sp::{
     encoding::SilentPaymentCode,
     receive::scan::Scanner,
 };
+use bitcoin::XOnlyPublicKey;
+
 use std::collections::BTreeMap;
 
 mod psbt;
@@ -28,8 +30,10 @@ fn assert_silentpayment_derivation(tx: &Transaction, prevouts: &[TxOut]) {
 
     for sp_output in found_spouts {
         let output_sk = spend_sk.add_tweak(&sp_output.tweak.into()).unwrap();
+        let xonly_pubkey = XOnlyPublicKey::from_slice(&sp_output.script_pubkey.as_bytes()[2..])
+            .expect("p2tr script");
         // Check the output is spendable
-        assert_eq!(output_sk.x_only_public_key(&secp).0, sp_output.xonly_pubkey);
+        assert_eq!(output_sk.x_only_public_key(&secp).0, xonly_pubkey);
     }
 }
 

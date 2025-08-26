@@ -1,25 +1,23 @@
-pub use bdk_bitcoind_rpc;
-pub use bdk_chain;
-
-use std::collections::{BTreeMap, BTreeSet};
-use std::iter::Extend;
-
+use bdk_bitcoind_rpc::bitcoincore_rpc::{Client, RpcApi};
 use bdk_chain::{Merge, TxGraph, tx_graph};
-
-use bdk_sp::encoding::SilentPaymentCode;
 use bdk_sp::{
     bitcoin::{
-        OutPoint, Transaction, TxOut, Txid,
+        OutPoint, ScriptBuf, Transaction, TxOut, Txid,
+        key::Secp256k1,
         secp256k1::{PublicKey, Scalar, SecretKey},
     },
+    encoding::SilentPaymentCode,
     receive::{SpOut, SpReceiveError, scan::Scanner},
 };
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    iter::Extend,
+};
 
-use bdk_bitcoind_rpc::bitcoincore_rpc::{Client, RpcApi};
-use bitcoin::ScriptBuf;
-use bitcoin::key::{Secp256k1, TweakedPublicKey};
+pub use bdk_chain;
+pub mod v2;
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct SpIndexes {
     pub spouts: BTreeMap<OutPoint, SpOut>,
     pub script_to_spout: BTreeMap<ScriptBuf, SpOut>,
@@ -111,7 +109,8 @@ impl From<SpIndexes> for SpIndexesChangeSet {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[must_use]
 pub struct SpIndexesChangeSet {
     pub spouts: BTreeMap<OutPoint, SpOut>,
@@ -148,11 +147,6 @@ impl Merge for SpIndexesChangeSet {
 pub struct SpIndexer<T, A> {
     prevout_source: T,
     pub scanner: Scanner,
-    // NOTE: Redundancy of the OutPoint here is to have a fast way to query particular SpOuts
-    // associated with a particular Outpoint.
-    // NOTE: Do not create SpIndex::spouts method which include OutPoint inside iterator because there is
-    // no reason to have the outpoint twice here (one in the tuple and another inside the SpOut)
-    // and a DoubleEndedIterator can also be obtained using the BTreeMap::values method
     pub indexes: SpIndexes,
     pub tx_graph: TxGraph<A>,
 }
@@ -209,9 +203,6 @@ impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
 
         // Index spouts
         for spout in spouts {
-            let x_only_tweaked = TweakedPublicKey::dangerous_assume_tweaked(spout.xonly_pubkey);
-            let script_pubkey = ScriptBuf::new_p2tr_tweaked(x_only_tweaked);
-
             self.indexes.spouts.insert(spout.outpoint, spout.clone());
 
             self.indexes
@@ -219,7 +210,7 @@ impl<A: bdk_chain::Anchor, T: PrevoutSource> SpIndexer<T, A> {
                 .insert((spout.label, spout.clone()));
             self.indexes
                 .script_to_spout
-                .insert(script_pubkey, spout.clone());
+                .insert(spout.script_pubkey.clone(), spout.clone());
         }
 
         Ok(tx_graph_changeset)

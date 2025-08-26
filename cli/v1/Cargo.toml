@@ -1,13 +1,17 @@
 [package]
-name = "example_silentpayments"
+name = "bdk_sp_cli_v1"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "sp-cli1"
+path = "src/main.rs"
+
 [dependencies]
 bdk_sp = { version = "0.1.0", path = "../../silentpayments/", features = ["serde"]}
-bdk_file_store = "0.19.0"
-bdk_chain = { version = "0.21.1", features = ["serde", "miniscript"]}
-bdk_bitcoind_rpc = { version = "0.18.0" }
+bdk_file_store = "0.21.0"
+bdk_chain = { version = "0.23.0", features = ["serde", "miniscript"]}
+bdk_bitcoind_rpc = { version = "0.20.0" }
 bdk_coin_select = { version = "0.4.0" }
 miniscript = { version = "12.0.0", default-features = true }
 serde_json = "1.0"
@@ -16,4 +20,4 @@ anyhow = "1"
 bitcoin = { version = "0.32.0", features = ["base64"], default-features = false }
 serde = "1.0.219"
 rand = "0.9.0"
-indexer = { version = "0.1.0", path = "../../indexer" }
+indexer = { version = "0.1.0", path = "../../indexer", features = ["serde"]}

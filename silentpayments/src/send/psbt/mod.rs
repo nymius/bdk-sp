@@ -15,11 +15,16 @@ use bitcoin::{
     secp256k1::{SecretKey, Signing},
     PrivateKey, Psbt, ScriptBuf, TapLeafHash, TapTweakHash, TxIn, TxOut, XOnlyPublicKey,
 };
+
+#[cfg(feature = "psbt_sp_spend")]
+use bitcoin::secp256k1::{PublicKey, Scalar};
+
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, HashMap},
 };
 
+pub mod sign;
 mod tests;
 
 /// A script pubkey paired with its corresponding secret key for silent payment derivation.
@@ -231,28 +236,33 @@ where
 
     for (psbt_input, txin) in psbt.inputs.iter().zip(psbt.unsigned_tx.input.iter()) {
         let prevout = get_prevout_script(psbt_input, txin)?;
-        let full_txin = build_full_txin(txin, psbt_input)?;
 
-        let maybe_secret_key = extract_pubkey(full_txin.clone(), &prevout)
-            .map(|pubkey_data| match pubkey_data {
-                (SpInputs::Tr, even_tr_output_key) => {
-                    match get_taproot_secret(psbt_input, k, secp) {
-                        Ok(Some(secret)) => {
-                            let (xonly, _) = secret.x_only_public_key(secp);
-                            if even_tr_output_key == xonly.public_key(Parity::Even) {
-                                Ok(Some(secret))
-                            } else {
-                                Err(SpSendError::KeyError)
+        let maybe_secret_key = if let Ok(Some(secret)) = get_sp_secret(psbt_input, k, secp) {
+            Some(secret)
+        } else {
+            let full_txin = build_full_txin(txin, psbt_input)?;
+            extract_pubkey(full_txin.clone(), &prevout)
+                .map(|pubkey_data| match pubkey_data {
+                    (SpInputs::Tr, even_tr_output_key) => {
+                        match get_taproot_secret(psbt_input, k, secp) {
+                            Ok(Some(secret)) => {
+                                let (xonly, _) = secret.x_only_public_key(secp);
+                                if even_tr_output_key == xonly.public_key(Parity::Even) {
+                                    Ok(Some(secret))
+                                } else {
+                                    Err(SpSendError::KeyError)
+                                }
                             }
+                            Ok(None) => Ok(None),
+                            Err(_) => Err(SpSendError::KeyError),
                         }
-                        Ok(None) => Ok(None),
-                        Err(_) => Err(SpSendError::KeyError),
                     }
-                }
-                _ => get_non_taproot_secret(psbt_input, k, secp).map_err(|_| SpSendError::KeyError),
-            })
-            .transpose()?
-            .flatten();
+                    _ => get_non_taproot_secret(psbt_input, k, secp)
+                        .map_err(|_| SpSendError::KeyError),
+                })
+                .transpose()?
+                .flatten()
+        };
 
         if let Some(secret_key) = maybe_secret_key {
             data_for_partial_secret
@@ -330,6 +340,58 @@ fn build_full_txin(txin: &TxIn, psbt_input: &psbt::Input) -> Result<TxIn, SpSend
     } else {
         Err(SpSendError::MissingWitness)
     }
+}
+
+#[cfg(not(feature = "psbt_sp_spend"))]
+fn get_sp_secret<C, K, E>(_: &psbt::Input, _: &K, _: &Secp256k1<C>) -> Result<Option<SecretKey>, E>
+where
+    C: Signing + Verification,
+    K: GetKey<Error = E>,
+{
+    Ok(None)
+}
+
+#[cfg(feature = "psbt_sp_spend")]
+fn get_sp_secret<C, K, E>(
+    psbt_input: &psbt::Input,
+    k: &K,
+    secp: &Secp256k1<C>,
+) -> Result<Option<SecretKey>, E>
+where
+    C: Signing + Verification,
+    K: GetKey<Error = E>,
+{
+    for (key, value) in psbt_input.proprietary.clone() {
+        if key.prefix == b"bip352".to_vec() && key.subtype == sign::SPEND_PK_SUBTYPE {
+            let spend_pk = PublicKey::from_slice(&key.key).expect("will fix later");
+            let mut scalar = [0u8; 32];
+            scalar.clone_from_slice(value.as_slice());
+
+            let tweak = Scalar::from_be_bytes(scalar).expect("will fix later");
+            let output_key = if let Some(txout) = &psbt_input.witness_utxo {
+                XOnlyPublicKey::from_slice(&txout.script_pubkey.as_bytes()[2..])
+                    .expect("p2tr script")
+            } else {
+                continue;
+            };
+            let tweaked_spend_pk = spend_pk
+                .add_exp_tweak(secp, &tweak)
+                .expect("will fix later");
+            let spend_sk = if let Ok(Some(sk)) =
+                k.get_key(KeyRequest::Pubkey(bitcoin::PublicKey::new(spend_pk)), secp)
+            {
+                sk
+            } else {
+                continue;
+            };
+            if tweaked_spend_pk.x_only_public_key().0 == output_key {
+                let sk = spend_sk.inner.add_tweak(&tweak).expect("will fix later");
+                return Ok(Some(sk));
+            }
+        }
+    }
+
+    Ok(None)
 }
 
 /// Retrieves the secret key for a taproot input from [`Psbt`] data.

@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "silentpayments",
-    "example-crates/example_silentpayments", "dleq", "indexer", "fuzz",
+    "cli/v1", "cli/v2", "dleq", "indexer", "fuzz", "wallet", "oracles"
 ]
 default-members = [
     "silentpayments", "dleq", "indexer",
