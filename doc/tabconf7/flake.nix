@@ -85,12 +85,40 @@
 
             chmod +x "$EXTRA_SCRIPTS/signet-cli"
 
-            cat > "$EXTRA_SCRIPTS/bdk-wallet" <<'EOF'
+            cat > "$EXTRA_SCRIPTS/signet-bdk" <<'EOF'
               #!/usr/bin/env bash
               bdk-cli --datadir "$BDK_DATA_DIR" --network signet wallet -w signet -e "$EXT_DESCRIPTOR" -i "$INT_DESCRIPTOR" -c rpc -u http://localhost:38332/ "$BITCOIN_DATA_DIR/signet/.cookie" -d sqlite "$@"
             EOF
 
-            chmod +x "$EXTRA_SCRIPTS/bdk-wallet"
+            chmod +x "$EXTRA_SCRIPTS/signet-bdk"
+
+            cat > "$EXTRA_SCRIPTS/signet-sp" <<'EOF'
+              #!/usr/bin/env bash
+              sp-cli2 "$@"
+            EOF
+
+            chmod +x "$EXTRA_SCRIPTS/signet-sp"
+
+            cat > "$EXTRA_SCRIPTS/regtest-cli" <<'EOF'
+            #!/usr/bin/env bash
+              just cli "$@"
+            EOF
+
+            chmod +x "$EXTRA_SCRIPTS/regtest-cli"
+
+            cat > "$EXTRA_SCRIPTS/regtest-bdk" <<'EOF'
+              #!/usr/bin/env bash
+              just regtest-bdk "$@"
+            EOF
+
+            chmod +x "$EXTRA_SCRIPTS/regtest-bdk"
+
+            cat > "$EXTRA_SCRIPTS/regtest-sp" <<'EOF'
+              #!/usr/bin/env bash
+              just regtest-sp "$@"
+            EOF
+
+            chmod +x "$EXTRA_SCRIPTS/regtest-sp"
 
             export PATH="$EXTRA_SCRIPTS:$PATH"
 
@@ -112,9 +140,16 @@
               sp-cli2 create --network signet --birthday $(bitcoin-cli --datadir=$BITCOIN_DATA_DIR --chain=signet getblockchaininfo | jq -r '.blocks') | jq -r '.tr_xprv' > ".tr_xprv"
             fi
 
+            # Start Regtest node on VM machine
+            just start
+
+            if [ ! -f ".regtest_tr_xprv" ]; then
+              DB_PATH=".sp_cli2_regtest.db" sp-cli2 create --network regtest --birthday $(just cli getblockchaininfo | jq -r '.blocks') | jq -r '.regtest_tr_xprv' > ".regtest_tr_xprv"
+            fi
+
             export TR_XPRV=$(cat ".tr_xprv")
 
-            trap "bitcoin-cli --datadir=$BITCOIN_DATA_DIR --chain=signet stop" EXIT
+            trap "bitcoin-cli --datadir=$BITCOIN_DATA_DIR --chain=signet stop && just stop" EXIT
           '';
         };
       }
