@@ -50,6 +50,7 @@ use rand::RngCore;
 use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
+    env,
     net::{IpAddr, Ipv4Addr},
     str::FromStr,
     sync::Mutex,
@@ -57,7 +58,6 @@ use std::{
 };
 
 const DB_MAGIC: &[u8] = b"bdk_example_silentpayments";
-const DB_PATH: &str = ".bdk_example_silentpayments.db";
 
 /// Delay for printing status to stdout.
 const STDOUT_PRINT_DELAY: Duration = Duration::from_secs(6);
@@ -208,11 +208,17 @@ async fn main() -> anyhow::Result<()> {
     let subscriber = tracing_subscriber::FmtSubscriber::new();
     tracing::subscriber::set_global_default(subscriber).unwrap();
 
+    let db_path = if let Ok(db_path) = env::var("DB_PATH") {
+        db_path
+    } else {
+        ".bdk_example_silentpayments.db".to_string()
+    };
+
     let Init {
         args,
         mut wallet,
         db,
-    } = match init_or_load(DB_MAGIC, DB_PATH)? {
+    } = match init_or_load(DB_MAGIC, &db_path)? {
         Some(init) => init,
         None => return Ok(()),
     };
@@ -732,7 +738,7 @@ pub fn init_or_load(db_magic: &[u8], db_path: &str) -> anyhow::Result<Option<Ini
             };
 
             let wallet = SpWallet::new(birthday, block_hash, &tr_xprv, network).unwrap();
-            let mut db = Store::<ChangeSet>::create(DB_MAGIC, DB_PATH)?;
+            let mut db = Store::<ChangeSet>::create(db_magic, db_path)?;
             if let Some(stage) = wallet.staged() {
                 db.append(stage).unwrap();
             }
