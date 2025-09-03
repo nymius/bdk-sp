@@ -180,7 +180,7 @@ start STATE="persistent":
   short_date=$(/bin/date +%m%d%y)
   exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
   set -euxo pipefail
-  trap just stop SIGHUP SIGINT SIGQUIT SIGTERM
+  trap "just stop" SIGHUP SIGINT SIGQUIT SIGTERM
   just startcontainer
 
   ENVDIR="/root/env"
