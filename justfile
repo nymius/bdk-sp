@@ -10,7 +10,7 @@ default:
 
 [doc("Build the project")]
 build:
-  cargo build --exclude sp_fuzz
+  cargo build --workspace --exclude sp_fuzz
 
 [doc("Check code: formatting, compilation, linting, and commit signature")]
 check:
