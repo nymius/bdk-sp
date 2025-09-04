@@ -144,7 +144,7 @@
             just start ephemeral
 
             if [ ! -f ".regtest_tr_xprv" ]; then
-              DB_PATH=".sp_cli2_regtest.db" sp-cli2 create --network regtest --birthday $(just cli getblockchaininfo | jq -r '.blocks') | jq -r '.regtest_tr_xprv' > ".regtest_tr_xprv"
+              DB_PATH=".sp_cli2_regtest.db" sp-cli2 create --network regtest --birthday $(just cli getblockchaininfo | jq -r '.blocks') | jq -r '.tr_xprv' > ".regtest_tr_xprv"
             fi
 
             export TR_XPRV=$(cat ".tr_xprv")
