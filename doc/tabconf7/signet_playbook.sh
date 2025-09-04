@@ -20,10 +20,10 @@ signet-bdk sync
 # 11. Get a silent payment code from sp-cli2 wallet
 SP_CODE=$(signet-sp code | jq -r '.silent_payment_code' | tr -d '\n')
 # 12. Create a transaction spending bdk-cli wallet UTXOs to a the previous silent payment code
-RAW_TX=$(signet-bdk create-sp-tx --to-sp $SP_CODE:10000 --fee-rate 5 | jq -r '.raw_tx' | tr -d '\n')
+RAW_TX=$(signet-bdk create_sp_tx --to-sp $SP_CODE:10000 --fee_rate 5 | jq -r '.raw_tx' | tr -d '\n')
 # Add a OP_RETURN if you want
 # OP_RETURN="Spending to silent payment UTXOs using BDK 🚀
-# RAW_TX=$(signet-bdk create-sp-tx --to-sp $SP_CODE:10000 --fee 5 --add_string $OP_RETURN)
+# RAW_TX=$(signet-bdk create_sp_tx --to-sp $SP_CODE:10000 --fee 5 --add_string $OP_RETURN)
 # 13. Broadcast transaction using bdk-cli wallet
 TXID=$(signet-bdk broadcast --tx $RAW_TX | jq -r '.txid' | tr -d '\n')
 # 14. Wait for the next block
@@ -41,7 +41,7 @@ SIGNET_ADDRESS=$(signet-bdk unused_address | jq -r '.address' | tr -d '\n')
 SP_TX=$(signet-sp new-tx --to $SIGNET_ADDRESS:5000 --fee-rate 5 | jq -r '.tx' | tr -d '\n')
 # Add a OP_RETURN if you want
 # OP_RETURN="Spending to silent payment UTXOs using BDK 🚀
-# SP_TX=$(signet-sp new-tx --to $SIGNET_ADDRESS:5000 --data $OP_RETURN --fee-rate 5 | jq -r '.tx' | tr -d '\n')
+# SP_TX=$(signet-sp new-tx --to $SIGNET_ADDRESS:5000 --data $OP_RETURN --fee_rate 5 | jq -r '.tx' | tr -d '\n')
 # This transaction as it is created by a silent payment wallet should have
 # derived a silent payment output to receive the change back. That output is
 # derived from a labelled silent payment code with label 0, the default
