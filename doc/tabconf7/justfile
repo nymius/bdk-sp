@@ -260,6 +260,13 @@ cookie:
   just podcmd "cat $(just envpath)/regtest/.cookie | cut -d ':' -f2"
 
 [group("Bitcoin Core")]
+[doc("Write the current session cookie to file and return path")]
+local_cookie_path:
+  #!/usr/bin/env bash
+  just podcmd "cat $(just envpath)/regtest/.cookie" > .regtest_cookie
+  echo ".regtest_cookie"
+
+[group("Bitcoin Core")]
 [doc("Mine a block, or mine <BLOCKS> number of blocks.")]
 mine BLOCKS="1" ADDRESS="bcrt1q6gau5mg4ceupfhtyywyaj5ge45vgptvawgg3aq":
   just cli generatetoaddress {{BLOCKS}} {{ADDRESS}}
