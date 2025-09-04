@@ -3,7 +3,6 @@ set quiet
 bdk_data_dir := env('BDK_DATA_DIR')
 ext_descriptor := env('EXT_DESCRIPTOR')
 int_descriptor := env('INT_DESCRIPTOR')
-bitcoin_data_dir := env('BITCOIN_DATA_DIR')
 
 [doc("List all available commands.")]
 default:
@@ -381,4 +380,4 @@ regtest-sp COMMAND *ARGS:
 [positional-arguments]
 regtest-bdk COMMAND *ARGS:
   #!/usr/bin/env bash
-  bdk-cli --datadir "{{bdk_data_dir}}" --network regtest wallet -w regtest -e "{{ext_descriptor}}" -i "{{int_descriptor}}" -c rpc -u http://localhost:18443/ "{{bitcoin_data_dir}}/regtest/.cookie" -d sqlite {{COMMAND}} {{ARGS}}
+  bdk-cli --datadir "{{bdk_data_dir}}" --network regtest wallet -w regtest -e "{{ext_descriptor}}" -i "{{int_descriptor}}" -c rpc -u http://localhost:18443/ $(just local_cookie_path) -d sqlite {{COMMAND}} {{ARGS}}
