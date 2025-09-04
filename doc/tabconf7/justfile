@@ -373,6 +373,9 @@ sendto ADDRESS:
 regtest-sp COMMAND *ARGS:
   #!/usr/bin/env bash
   export DB_PATH=".sp_cli2_regtest.db"
+  export RPC_PASS=$(just cookie)
+  export RPC_USER="__cookie__"
+  export RPC_URL="http://127.0.0.1:18443"
   sp-cli2 {{COMMAND}} {{ARGS}}
 
 [group("Silent payment wallet")]
