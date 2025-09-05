@@ -61,6 +61,7 @@
             qrencode
             qrscan
             xclip
+            just
             presenterm
             bitcoind
             bdk-cli.packages.${system}.bdk-cli
