@@ -1,8 +1,6 @@
 set quiet
 
-bdk_data_dir := env('BDK_DATA_DIR')
-ext_descriptor := env('EXT_DESCRIPTOR')
-int_descriptor := env('INT_DESCRIPTOR')
+bdk_data_dir := env('BDK_DATA_DIR', '.bdk')
 
 [doc("List all available commands.")]
 default:
@@ -383,4 +381,6 @@ regtest-sp COMMAND *ARGS:
 [positional-arguments]
 regtest-bdk COMMAND *ARGS:
   #!/usr/bin/env bash
-  bdk-cli --datadir "{{bdk_data_dir}}" --network regtest wallet -w regtest -e "{{ext_descriptor}}" -i "{{int_descriptor}}" -c rpc -u http://localhost:18443/ $(just local_cookie_path) -d sqlite {{COMMAND}} {{ARGS}}
+  export EXT_DESCRIPTOR=$(cat "{{bdk_data_dir}}/.external_descriptor")
+  export INT_DESCRIPTOR=$(cat "{{bdk_data_dir}}/.internal_descriptor")
+  bdk-cli --datadir "{{bdk_data_dir}}" --network regtest wallet -w regtest -e "$EXT_DESCRIPTOR" -i "$INT_DESCRIPTOR" -c rpc -u http://localhost:18443/ $(just local_cookie_path) -d sqlite {{COMMAND}} {{ARGS}}
