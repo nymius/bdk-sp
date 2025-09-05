@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+
+########################### STAGE 1: setup ####################################
+
 # 1. Launch workshop environment.
 nix develop .
 # 2. Check bitcoind is running on signet
@@ -9,6 +12,9 @@ signet-bdk balance
 signet-sp balance
 # 5. Synchronize bdk-cli wallet
 signet-bdk sync
+
+########################## STAGE 2: initial funding ###########################
+
 # 6. Get a new address from bdk-cli wallet
 SIGNET_ADDRESS=$(signet-bdk unused_address | jq -r '.address' | tr -d '\n')
 # 7. Encode the address as a QR code
@@ -35,6 +41,9 @@ signet-sp scan-cbf "https://silentpayments.dev/blindbit/"
 signet-sp balance
 # 18. Check balance on bdk-cli wallet
 signet-bdk balance
+
+################ STAGE 3: creating silent payment outputs #####################
+
 # 19. Get a new address from bdk-cli wallet
 SIGNET_ADDRESS=$(signet-bdk unused_address | jq -r '.address' | tr -d '\n')
 # 20. Create new transaction with sp-cli2 spending silent payment outputs
@@ -47,6 +56,9 @@ SP_TX=$(signet-sp new-tx --to $SIGNET_ADDRESS:5000 --fee-rate 5 | jq -r '.tx' | 
 # derived from a labelled silent payment code with label 0, the default
 # specified by BIP 352 for change.
 # 21. Verify the change output has been correctly derived for $SP_TX
+
+########### STAGE 5: verifying a silent payment change output #################
+
 DERIVATION_ORDER=0
 CHANGE_LABEL=0
 EXPECTED_CHANGE_SPK=$(signet-sp derive-for-sp-tx $DERIVATION_ORDER --label $CHANGE_LABEL --tx-hex $SP_TX | jq -r '.script_pubkey_hex' | tr -d '\n')
@@ -56,6 +68,9 @@ if [ $TX_OUTPUT_SPKS == *$EXPECTED_CHANGE_SPK* ]; then
 else
   echo "Something went wrong...";
 fi
+
+############## STAGE 6: spending silent payment outputs #######################
+
 # 22. Broadcast transaction
 SP_TXID=$(signet-cli sendrawtransaction $SP_TX | tr -d '\n')
 # 23. Wait for the next block
