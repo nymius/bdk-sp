@@ -135,9 +135,6 @@
               echo "tr($XPRV/86h/1h/0h/1/*)" > "$BDK_DATA_DIR/.internal_descriptor"
             fi
 
-            export EXT_DESCRIPTOR=$(cat "$BDK_DATA_DIR/.external_descriptor")
-            export INT_DESCRIPTOR=$(cat "$BDK_DATA_DIR/.internal_descriptor")
-
             if [ ! -f ".tr_xprv" ]; then
               sp-cli2 create --network signet --birthday $(bitcoin-cli --datadir=$BITCOIN_DATA_DIR --chain=signet getblockchaininfo | jq -r '.blocks') | jq -r '.tr_xprv' > ".tr_xprv"
             fi
@@ -146,6 +143,8 @@
             just init
 
             export TR_XPRV=$(cat ".tr_xprv")
+            export EXT_DESCRIPTOR=$(cat "$BDK_DATA_DIR/.external_descriptor")
+            export INT_DESCRIPTOR=$(cat "$BDK_DATA_DIR/.internal_descriptor")
 
             trap "bitcoin-cli --datadir=$BITCOIN_DATA_DIR --chain=signet stop && just stop" EXIT
           '';
