@@ -127,9 +127,10 @@
             export RPC_PASS=$(cat $BITCOIN_DATA_DIR/signet/.cookie | cut -d ':' -f2)
             export RPC_URL="http://127.0.0.1:38332/"
 
-            XPRV=$(bdk-cli --datadir $BDK_DATA_DIR --network signet key generate | jq -r '.xprv')
             if [ ! -f "$BDK_DATA_DIR/.external_descriptor" ] || [ ! -f "$BDK_DATA_DIR/.internal_descriptor" ]; then
               rm -rf $BDK_DATA_DIR/signet
+              rm -rf $BDK_DATA_DIR/regtest
+              XPRV=$(bdk-cli --datadir $BDK_DATA_DIR --network signet key generate | jq -r '.xprv')
               echo "tr($XPRV/86h/1h/0h/0/*)" > "$BDK_DATA_DIR/.external_descriptor"
               echo "tr($XPRV/86h/1h/0h/1/*)" > "$BDK_DATA_DIR/.internal_descriptor"
             fi
