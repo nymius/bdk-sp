@@ -414,3 +414,10 @@ _init_regtest_sp:
   fi
 
 init: (start "ephemeral") _init_regtest_bdk _init_regtest_sp
+
+_local_install:
+  #!/usr/bin/env bash
+  cargo install --git https://github.com/nymius/bdk-cli bdk-cli --branch feat/nix-env --all-features
+  cargo install --git https://github.com/nymius/bdk-sp bdk_sp_cli_v2 --branch feat/nix-env --all-features
+
+non_nix_init: _local_install init
