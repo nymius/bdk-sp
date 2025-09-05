@@ -28,7 +28,7 @@ build TAG="1.0.0" VERSION="29.0" RELEASE="29.0" ARCH="x86_64-linux-gnu": machine
   #!/usr/bin/env bash
   # Create virtual Containerfile by storing content in file descriptor 3
   exec 3<<- "EOF"
-    FROM debian:trixie AS debian-builder
+    FROM debian:trixie-slim AS debian-builder
 
     # Install wget dependency
     RUN apt-get update && apt-get install -y wget
@@ -45,7 +45,8 @@ build TAG="1.0.0" VERSION="29.0" RELEASE="29.0" ARCH="x86_64-linux-gnu": machine
     RUN mkdir -p /bitcoin
     RUN wget -qO- ${BITCOIN_URL} | tar -xzvf - -C /bitcoin
 
-    FROM rust:trixie AS base
+    FROM rust:slim-trixie AS base
+    RUN apt-get update && apt-get install -y pkg-config libssl-dev
     RUN cargo install sccache --locked
     ENV RUSTC_WRAPPER=sccache SCCACHE_DIR=/sccache
     # Install dependencies for Esplora
@@ -84,7 +85,8 @@ build TAG="1.0.0" VERSION="29.0" RELEASE="29.0" ARCH="x86_64-linux-gnu": machine
     RUN cp target/release/fbbe /build
     RUN rm -rf /fbbe
 
-    FROM golang:trixie as go-builder
+    # golang:trixie cannot be updated because of signature issues https://community.intel.com/t5/Intel-Fortran-Compiler/Can-t-update-in-Denian-13-Trixie/m-p/1715126
+    FROM golang:bookworm as go-builder
     RUN apt-get update && apt-get install wget
     RUN mkdir -p /blindbit
     RUN mkdir -p /build
@@ -93,7 +95,7 @@ build TAG="1.0.0" VERSION="29.0" RELEASE="29.0" ARCH="x86_64-linux-gnu": machine
     RUN go mod download
     RUN env CGO_ENABLED=0 go build -o /build/blindbit ./src
 
-    FROM debian:trixie
+    FROM debian:trixie-slim
     RUN apt-get update && apt-get install -y libssl3
     ARG BITCOIN_VERSION=26.0
     COPY --from=rust-builder /build/electrs /usr/local/bin
