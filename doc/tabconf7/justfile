@@ -155,6 +155,14 @@ startcontainer: (create "false" "1.0.0")
   fi
   podman --connection sp_tabconf7 start RegtestBitcoinEnv
 
+clean_regtest_bdk:
+  rm -rf {{bdk_data_dir}}/regtest
+
+clean_regtest_sp:
+  #!/usr/bin/env bash
+  rm -rf ".regtest_tr_xprv"
+  rm -rf ".sp_cli2_regtest.db"
+
 [group("Podman")]
 [doc("Stop your podman machine and running environment.")]
 stop:
@@ -173,8 +181,9 @@ stop:
   else
     just cli stop
     if just podcmd '[ -d /tmp/testenv ]'; then
-      just podcmd "rm -rf .bdk_*"
       just podcmd "rm -rf /tmp/testenv"
+      just clean_regtest_sp
+      just clean_regtest_bdk
     fi
     podman --connection sp_tabconf7 stop RegtestBitcoinEnv
   fi
@@ -384,3 +393,24 @@ regtest-bdk COMMAND *ARGS:
   export EXT_DESCRIPTOR=$(cat "{{bdk_data_dir}}/.external_descriptor")
   export INT_DESCRIPTOR=$(cat "{{bdk_data_dir}}/.internal_descriptor")
   bdk-cli --datadir "{{bdk_data_dir}}" --network regtest wallet -w regtest -e "$EXT_DESCRIPTOR" -i "$INT_DESCRIPTOR" -c rpc -u http://localhost:18443/ $(just local_cookie_path) -d sqlite {{COMMAND}} {{ARGS}}
+
+
+_init_regtest_bdk:
+  #!/usr/bin/env bash
+  mkdir -p {{bdk_data_dir}}
+  if [ ! -f "{{bdk_data_dir}}/.external_descriptor" ] || [ ! -f "{{bdk_data_dir}}/.internal_descriptor" ]; then
+    rm -rf {{bdk_data_dir}}/signet
+    rm -rf {{bdk_data_dir}}/regtest
+    XPRV=$(bdk-cli --datadir {{bdk_data_dir}} --network signet key generate | jq -r '.xprv')
+    echo "tr($XPRV/86h/1h/0h/0/*)" >  "{{bdk_data_dir}}/.external_descriptor"
+    echo "tr($XPRV/86h/1h/0h/1/*)" >  "{{bdk_data_dir}}/.internal_descriptor"
+  fi
+
+_init_regtest_sp:
+  #!/usr/bin/env bash
+  if [ ! -f ".regtest_tr_xprv" ]; then
+    rm -rf ".sp_cli2_regtest.db"
+    DB_PATH=".sp_cli2_regtest.db" sp-cli2 create --network regtest --birthday $(just cli getblockchaininfo | jq -r '.blocks') | jq -r '.tr_xprv' > ".regtest_tr_xprv"
+  fi
+
+init: (start "ephemeral") _init_regtest_bdk _init_regtest_sp
