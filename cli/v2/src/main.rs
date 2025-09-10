@@ -3,6 +3,7 @@ use bdk_bitcoind_rpc::{
     bitcoincore_rpc::{Auth, Client, RpcApi},
     Emitter, NO_EXPECTED_MEMPOOL_TXIDS,
 };
+use bdk_coin_select::DrainWeights;
 use bdk_file_store::Store;
 use bdk_sp::{
     bitcoin::{
@@ -607,11 +608,22 @@ async fn main() -> anyhow::Result<()> {
                     SelectorParams::new(
                         FeeRate::from_sat_per_vb_unchecked(fee_rate),
                         outputs,
-                        bdk_tx::ChangeDescriptor::Manual {
-                            script_pubkey: wallet.get_change_address().get_placeholder_p2tr_spk(),
-                            max_weight_to_satisfy_wu: SpWallet::DEFAULT_SPENDING_WEIGHT,
-                        },
+                        bdk_tx::ScriptSource::from_script(
+                            wallet.get_change_address().get_placeholder_p2tr_spk(),
+                        ),
                         bdk_tx::ChangePolicyType::NoDustAndLeastWaste { longterm_feerate },
+                        DrainWeights {
+                            output_weight: TxOut {
+                                script_pubkey: wallet
+                                    .get_change_address()
+                                    .get_placeholder_p2tr_spk(),
+                                value: Amount::ZERO,
+                            }
+                            .weight()
+                            .to_wu(),
+                            spend_weight: SpWallet::DEFAULT_SPENDING_WEIGHT,
+                            n_outputs: 1,
+                        },
                     ),
                 )?;
 
