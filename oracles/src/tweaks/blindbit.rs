@@ -125,6 +125,7 @@ pub enum TweakEvent {
 
 pub struct BlindbitSubscriber {
     db: Arc<Mutex<Database>>,
+    unspent_script_pubkeys: Vec<[u8; 34]>,
     indexer: SpIndexer<ConfirmationBlockTime>,
     client: BlindbitClient,
     requests: UnboundedReceiver<FilterEvent>,
@@ -133,6 +134,7 @@ pub struct BlindbitSubscriber {
 
 impl BlindbitSubscriber {
     pub fn new(
+        unspent_script_pubkeys: Vec<[u8; 34]>,
         indexer: SpIndexer<ConfirmationBlockTime>,
         host_url: String,
         network: Network,
@@ -146,6 +148,7 @@ impl BlindbitSubscriber {
         Ok((
             Self {
                 db,
+                unspent_script_pubkeys,
                 indexer,
                 client: BlindbitClient::new(host_url, network)?,
                 requests,
@@ -211,7 +214,8 @@ impl BlindbitSubscriber {
                 })
                 .collect::<HashMap<[u8; 34], PublicKey>>();
 
-            let only_spks: Vec<[u8; 34]> = all_spks.clone().into_keys().collect();
+            let mut only_spks: Vec<[u8; 34]> = all_spks.clone().into_keys().collect();
+            only_spks.extend_from_slice(&self.unspent_script_pubkeys);
 
             if !all_spks.is_empty() && filter.match_any(&hash, only_spks.into_iter()).unwrap() {
                 tracing::info!("Match found for block {hash} at height {height}");

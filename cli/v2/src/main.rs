@@ -349,6 +349,7 @@ async fn main() -> anyhow::Result<()> {
             } = client;
 
             let (mut blindbit_subscriber, db_buffer) = BlindbitSubscriber::new(
+                wallet.unspent_spks(),
                 wallet.indexer().clone(),
                 tweak_server_url,
                 wallet.network(),
