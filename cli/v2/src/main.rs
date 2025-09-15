@@ -154,6 +154,7 @@ pub enum Commands {
     },
     ScanCbf {
         tweak_server_url: String,
+        height: Option<u32>,
     },
     Create {
         /// Network
@@ -284,7 +285,10 @@ async fn main() -> anyhow::Result<()> {
                 println!("{}", serde_json::to_string_pretty(&obj)?);
             }
         }
-        Commands::ScanCbf { tweak_server_url } => {
+        Commands::ScanCbf {
+            tweak_server_url,
+            height: maybe_height,
+        } => {
             async fn trace(
                 mut log_rx: kyoto::Receiver<String>,
                 mut info_rx: kyoto::Receiver<Info>,
@@ -313,7 +317,9 @@ async fn main() -> anyhow::Result<()> {
 
             tracing::info!("Wallet main SP address: {}", wallet.get_address());
 
-            let sync_height = if wallet.birthday <= wallet.chain().tip().height() {
+            let sync_height = if let Some(height) = maybe_height {
+                height
+            } else if wallet.birthday <= wallet.chain().tip().height() {
                 wallet.chain().tip().height()
             } else {
                 wallet.birthday
