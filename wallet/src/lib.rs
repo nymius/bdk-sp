@@ -6,7 +6,7 @@
 //! transaction building, and [`indexer`] for blockchain data management.
 use bdk_sp::{
     bitcoin::{
-        Block, Transaction, Txid,
+        Block, ScriptBuf, Transaction, Txid,
         absolute::{self, Height, LockTime, Time},
         secp256k1,
     },
@@ -210,6 +210,36 @@ impl SpWallet {
             chain,
             stage,
         })
+    }
+
+    pub fn unspent_spks(&self) -> Vec<[u8; 34]> {
+        let mut unspent_spks = Vec::<ScriptBuf>::new();
+        for (_, txout) in self
+            .graph()
+            .try_filter_chain_unspents(
+                self.chain(),
+                self.chain().tip().block_id(),
+                CanonicalizationParams::default(),
+                self.indexer()
+                    .index()
+                    .by_xonly()
+                    .map(|(xonly, outpoint)| (xonly, *outpoint)),
+            )
+            .unwrap()
+        {
+            unspent_spks.push(txout.txout.script_pubkey);
+        }
+
+        let spk_bytes: Vec<[u8; 34]> = unspent_spks
+            .into_iter()
+            .map(|spk| {
+                spk.into_bytes()
+                    .try_into()
+                    .expect("all spks should be p2tr scripts which have 34 bytes")
+            })
+            .collect();
+
+        spk_bytes
     }
 
     /// Returns an iterator over the canonical transactions in the wallet.
