@@ -336,19 +336,38 @@ async fn main() -> anyhow::Result<()> {
             // Set up the light client
             let checkpoint =
                 HeaderCheckpoint::closest_checkpoint_below_height(sync_height, wallet.network());
-            let peer_1 = IpAddr::V4(Ipv4Addr::new(95, 217, 198, 121));
-            let peer_2 = TrustedPeer::new(
-                AddrV2::Ipv4(Ipv4Addr::new(23, 137, 57, 100)),
-                None,
-                ServiceFlags::P2P_V2,
-            );
-            let builder = NodeBuilder::new(wallet.network());
-            let (node, client) = builder
-                .after_checkpoint(checkpoint)
-                .add_peers(vec![(peer_1, None).into(), peer_2])
-                .required_peers(2)
-                .build()
-                .unwrap();
+            let (node, client) = match wallet.network() {
+                Network::Regtest => {
+                    let peer = TrustedPeer::new(
+                        AddrV2::Ipv4(Ipv4Addr::new(127, 0, 0, 1)),
+                        None,
+                        ServiceFlags::P2P_V2,
+                    );
+                    let builder = NodeBuilder::new(wallet.network());
+                    builder
+                        .after_checkpoint(checkpoint)
+                        .add_peer(peer)
+                        .required_peers(1)
+                        .build()
+                        .unwrap()
+                }
+                Network::Signet => {
+                    let peer_1 = IpAddr::V4(Ipv4Addr::new(95, 217, 198, 121));
+                    let peer_2 = TrustedPeer::new(
+                        AddrV2::Ipv4(Ipv4Addr::new(23, 137, 57, 100)),
+                        None,
+                        ServiceFlags::P2P_V2,
+                    );
+                    let builder = NodeBuilder::new(wallet.network());
+                    builder
+                        .after_checkpoint(checkpoint)
+                        .add_peers(vec![(peer_1, None).into(), peer_2])
+                        .required_peers(2)
+                        .build()
+                        .unwrap()
+                }
+                _ => unimplemented!("Not mainnet nor testnet environments"),
+            };
             let (changes_tx, changes_rx) = tokio::sync::mpsc::unbounded_channel::<FilterEvent>();
             let (matches_tx, mut matches_rx) = tokio::sync::mpsc::unbounded_channel::<TweakEvent>();
 
