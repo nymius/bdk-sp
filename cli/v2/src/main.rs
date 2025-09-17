@@ -383,7 +383,6 @@ async fn main() -> anyhow::Result<()> {
                 wallet.unspent_spks(),
                 wallet.indexer().clone(),
                 tweak_server_url,
-                wallet.network(),
                 changes_rx,
                 matches_tx,
             )

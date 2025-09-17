@@ -64,7 +64,7 @@ pub struct BlindbitClient {
 }
 
 impl BlindbitClient {
-    pub fn new(host_url: String, network: Network) -> Result<Self, BlindbitError> {
+    pub fn new(host_url: String) -> Result<Self, BlindbitError> {
         let mut host_url = Url::parse(&host_url)?;
         let client = Client::new();
 
@@ -72,8 +72,6 @@ impl BlindbitClient {
         if !host_url.path().ends_with('/') {
             host_url.set_path(&format!("{}/", host_url.path()));
         }
-
-        host_url.set_path(&format!("{}{}/", host_url.path(), network));
 
         tracing::info!("Subscribing to tweak server {}", host_url);
 
@@ -137,7 +135,6 @@ impl BlindbitSubscriber {
         unspent_script_pubkeys: Vec<[u8; 34]>,
         indexer: SpIndexer<ConfirmationBlockTime>,
         host_url: String,
-        network: Network,
         requests: UnboundedReceiver<FilterEvent>,
         sender: UnboundedSender<TweakEvent>,
     ) -> Result<(Self, DatabaseBuffer), BlindbitError> {
@@ -150,7 +147,7 @@ impl BlindbitSubscriber {
                 db,
                 unspent_script_pubkeys,
                 indexer,
-                client: BlindbitClient::new(host_url, network)?,
+                client: BlindbitClient::new(host_url)?,
                 requests,
                 sender,
             },
