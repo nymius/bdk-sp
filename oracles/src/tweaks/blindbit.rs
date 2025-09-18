@@ -186,9 +186,9 @@ impl BlindbitSubscriber {
                 let client = client.clone();
                 async move {
                     if let Ok(tweaks) = client.tweaks(height, Amount::from_sat(1000)).await {
-                        Some((height, hash, tweaks))
+                        (height, hash, tweaks)
                     } else {
-                        None
+                        (height, hash, vec![])
                     }
                 }
             })
@@ -196,7 +196,7 @@ impl BlindbitSubscriber {
 
         let read = self.db.lock().unwrap().begin_read().unwrap();
         let table = read.open_table(TABLE_DEF).unwrap();
-        while let Some((height, hash, tweaks)) = stream.next().await.flatten() {
+        while let Some((height, hash, tweaks)) = stream.next().await {
             tracing::info!("Tweaks {progress}/{base}");
             progress += 1;
 
