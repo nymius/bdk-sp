@@ -441,10 +441,10 @@ async fn main() -> anyhow::Result<()> {
                                         }
                                     }
 
-                                    if !partial_secrets.is_empty() {
-                                        tracing::info!("Block {hash} is relevant, indexing.");
-                                        wallet.apply_block_relevant(block, partial_secrets, height);
-                                    }
+                                    tracing::info!("Block {hash} is relevant, indexing.");
+                                    // if all outputs in transactions in the block are not p2tr
+                                    // outputs, partial secrets is going to be empty
+                                    wallet.apply_block_relevant(block, partial_secrets, height);
                                 }
                             }
                         }
