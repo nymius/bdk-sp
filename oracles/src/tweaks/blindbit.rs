@@ -215,6 +215,8 @@ impl BlindbitSubscriber {
                 .collect::<HashMap<[u8; 34], PublicKey>>();
 
             let mut only_spks: Vec<[u8; 34]> = all_spks.clone().into_keys().collect();
+            // unspent script pubkeys can only be present in blocks with tweaks, because they are
+            // by themselves inputs available for shared secret derivation
             only_spks.extend_from_slice(&self.unspent_script_pubkeys);
 
             if !all_spks.is_empty() && filter.match_any(&hash, only_spks.into_iter()).unwrap() {
