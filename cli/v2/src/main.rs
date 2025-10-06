@@ -154,9 +154,9 @@ pub enum Commands {
     },
     ScanCbf {
         tweak_server_url: String,
-        #[clap(long, short, default_value = "height")]
+        #[clap(long)]
         height: Option<u32>,
-        #[clap(long, short, default_value = "hash")]
+        #[clap(long)]
         hash: Option<BlockHash>,
     },
     Create {
@@ -164,10 +164,10 @@ pub enum Commands {
         #[clap(long, short, default_value = "signet")]
         network: Network,
         /// The block height at which to begin scanning outputs for this wallet
-        #[clap(long, short, default_value = "height")]
+        #[clap(long)]
         birthday_height: u32,
         /// The block hash at which to begin scanning outputs for this wallet
-        #[clap(long, short, default_value = "hash")]
+        #[clap(long)]
         birthday_hash: BlockHash,
         /// Genesis Hash
         genesis_hash: Option<BlockHash>,
