@@ -207,6 +207,7 @@ pub enum Commands {
         descriptor: Option<String>,
     },
     Balance,
+    Birthday,
 }
 
 #[tokio::main]
@@ -724,6 +725,13 @@ async fn main() -> anyhow::Result<()> {
                 "tx".to_string(),
                 json!(bitcoin::consensus::encode::serialize_hex(&tx)),
             );
+            println!("{}", serde_json::to_string_pretty(&obj)?);
+        }
+        Commands::Birthday => {
+            let BlockId { height, hash } = wallet.birthday;
+            let mut obj = serde_json::Map::new();
+            obj.insert("height".to_string(), json!(height));
+            obj.insert("hash".to_string(), json!(hash));
             println!("{}", serde_json::to_string_pretty(&obj)?);
         }
         Commands::Create { .. } => {
