@@ -369,26 +369,16 @@ async fn main() -> anyhow::Result<()> {
                         .build()
                 }
                 Network::Signet => {
-                    let peer_1 = TrustedPeer::new(
-                        AddrV2::Ipv4(Ipv4Addr::new(135, 181, 182, 162)),
-                        None,
-                        ServiceFlags::P2P_V2,
-                    );
-                    let peer_2 = TrustedPeer::new(
-                        AddrV2::Ipv4(Ipv4Addr::new(172, 105, 179, 233)),
-                        None,
-                        ServiceFlags::P2P_V2,
-                    );
-                    let peer_3 = TrustedPeer::new(
-                        AddrV2::Ipv4(Ipv4Addr::new(37, 254, 97, 224)),
+                    let peer = TrustedPeer::new(
+                        AddrV2::Ipv4(Ipv4Addr::new(170, 75, 162, 231)),
                         None,
                         ServiceFlags::P2P_V2,
                     );
                     let builder = Builder::new(wallet.network());
                     builder
                         .chain_state(bip157::chain::ChainState::Checkpoint(checkpoint))
-                        .add_peers(vec![peer_1, peer_2, peer_3])
-                        .required_peers(2)
+                        .add_peers(vec![peer])
+                        .required_peers(1)
                         .build()
                 }
                 _ => unimplemented!("Not mainnet nor testnet environments"),
