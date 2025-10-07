@@ -155,6 +155,8 @@ pub enum Commands {
     ScanCbf {
         tweak_server_url: String,
         #[clap(long)]
+        extra_peer: Option<String>,
+        #[clap(long)]
         height: Option<u32>,
         #[clap(long)]
         hash: Option<BlockHash>,
@@ -300,6 +302,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::ScanCbf {
             tweak_server_url,
+            extra_peer: maybe_extra_peer,
             height,
             hash,
         } => {
@@ -354,34 +357,40 @@ async fn main() -> anyhow::Result<()> {
                 HeaderCheckpoint::from_genesis(wallet.network())
             };
 
-            let (node, client) = match wallet.network() {
+            let mut peers = vec![];
+            match wallet.network() {
                 Network::Regtest => {
-                    let peer = TrustedPeer::new(
+                    peers.push(TrustedPeer::new(
                         AddrV2::Ipv4(Ipv4Addr::new(127, 0, 0, 1)),
                         None,
                         ServiceFlags::P2P_V2,
-                    );
-                    let builder = Builder::new(wallet.network());
-                    builder
-                        .chain_state(bip157::chain::ChainState::Checkpoint(checkpoint))
-                        .add_peer(peer)
-                        .required_peers(1)
-                        .build()
+                    ));
                 }
                 Network::Signet => {
-                    let peer = TrustedPeer::new(
+                    peers.push(TrustedPeer::new(
                         AddrV2::Ipv4(Ipv4Addr::new(170, 75, 162, 231)),
                         None,
                         ServiceFlags::P2P_V2,
-                    );
-                    let builder = Builder::new(wallet.network());
-                    builder
-                        .chain_state(bip157::chain::ChainState::Checkpoint(checkpoint))
-                        .add_peers(vec![peer])
-                        .required_peers(1)
-                        .build()
+                    ));
                 }
                 _ => unimplemented!("Not mainnet nor testnet environments"),
+            };
+
+            if let Some(extra_peer) = maybe_extra_peer {
+                peers.push(TrustedPeer::new(
+                    AddrV2::Ipv4(Ipv4Addr::from_str(&extra_peer)?),
+                    None,
+                    ServiceFlags::P2P_V2,
+                ));
+            };
+
+            let (node, client) = {
+                let builder = Builder::new(wallet.network());
+                builder
+                    .chain_state(bip157::chain::ChainState::Checkpoint(checkpoint))
+                    .add_peers(peers)
+                    .required_peers(1)
+                    .build()
             };
             let (changes_tx, changes_rx) = tokio::sync::mpsc::unbounded_channel::<FilterEvent>();
             let (matches_tx, mut matches_rx) = tokio::sync::mpsc::unbounded_channel::<TweakEvent>();
