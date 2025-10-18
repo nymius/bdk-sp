@@ -27,13 +27,13 @@ use bdk_sp::{
     },
 };
 use bdk_sp_oracles::{
-    filters::kyoto::{FilterEvent, FilterSubscriber},
-    kyoto::{
+    bip157::{
         self,
         tokio::{self, select},
-        AddrV2, Client as KyotoClient, HeaderCheckpoint, IndexedBlock, Info, NodeBuilder,
-        ServiceFlags, TrustedPeer, UnboundedReceiver, Warning,
+        AddrV2, Builder, Client as KyotoClient, HeaderCheckpoint, IndexedBlock, Info, ServiceFlags,
+        TrustedPeer, UnboundedReceiver, Warning,
     },
+    filters::kyoto::{FilterEvent, FilterSubscriber},
     tweaks::blindbit::{BlindbitSubscriber, TweakEvent},
 };
 use bdk_sp_wallet::{
@@ -51,7 +51,7 @@ use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
     env,
-    net::{IpAddr, Ipv4Addr},
+    net::Ipv4Addr,
     str::FromStr,
     sync::Mutex,
     time::{Duration, Instant},
@@ -303,17 +303,11 @@ async fn main() -> anyhow::Result<()> {
             hash,
         } => {
             async fn trace(
-                mut log_rx: kyoto::Receiver<String>,
-                mut info_rx: kyoto::Receiver<Info>,
+                mut info_rx: bip157::Receiver<Info>,
                 mut warn_rx: UnboundedReceiver<Warning>,
             ) {
                 loop {
                     select! {
-                        log = log_rx.recv() => {
-                            if let Some(log) = log {
-                                tracing::info!("{log}");
-                            }
-                        }
                         info = info_rx.recv() => {
                             if let Some(info) = info {
                                 tracing::info!("{info}");
@@ -331,11 +325,11 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!("Wallet main SP address: {}", wallet.get_address());
 
             let sync_point = if let (Some(height), Some(hash)) = (height, hash) {
-                BlockId { height, hash }
+                HeaderCheckpoint::new(height, hash)
             } else if wallet.birthday.height <= wallet.chain().tip().height() {
                 let height = wallet.chain().tip().height();
                 let hash = wallet.chain().tip().hash();
-                BlockId { height, hash }
+                HeaderCheckpoint::new(height, hash)
             } else {
                 let checkpoint = wallet
                     .chain()
@@ -343,7 +337,7 @@ async fn main() -> anyhow::Result<()> {
                     .expect("should be something");
                 let height = checkpoint.height();
                 let hash = checkpoint.hash();
-                BlockId { height, hash }
+                HeaderCheckpoint::new(height, hash)
             };
 
             tracing::info!(
@@ -353,10 +347,12 @@ async fn main() -> anyhow::Result<()> {
             );
 
             // Set up the light client
-            let checkpoint = HeaderCheckpoint::closest_checkpoint_below_height(
-                sync_point.height,
-                wallet.network(),
-            );
+            let checkpoint = if wallet.network() == Network::Bitcoin {
+                HeaderCheckpoint::taproot_activation()
+            } else {
+                HeaderCheckpoint::from_genesis(wallet.network())
+            };
+
             let (node, client) = match wallet.network() {
                 Network::Regtest => {
                     let peer = TrustedPeer::new(
@@ -364,28 +360,35 @@ async fn main() -> anyhow::Result<()> {
                         None,
                         ServiceFlags::P2P_V2,
                     );
-                    let builder = NodeBuilder::new(wallet.network());
+                    let builder = Builder::new(wallet.network());
                     builder
-                        .after_checkpoint(checkpoint)
+                        .chain_state(bip157::chain::ChainState::Checkpoint(checkpoint))
                         .add_peer(peer)
                         .required_peers(1)
                         .build()
-                        .unwrap()
                 }
                 Network::Signet => {
-                    let peer_1 = IpAddr::V4(Ipv4Addr::new(95, 217, 198, 121));
-                    let peer_2 = TrustedPeer::new(
-                        AddrV2::Ipv4(Ipv4Addr::new(23, 137, 57, 100)),
+                    let peer_1 = TrustedPeer::new(
+                        AddrV2::Ipv4(Ipv4Addr::new(135, 181, 182, 162)),
                         None,
                         ServiceFlags::P2P_V2,
                     );
-                    let builder = NodeBuilder::new(wallet.network());
+                    let peer_2 = TrustedPeer::new(
+                        AddrV2::Ipv4(Ipv4Addr::new(172, 105, 179, 233)),
+                        None,
+                        ServiceFlags::P2P_V2,
+                    );
+                    let peer_3 = TrustedPeer::new(
+                        AddrV2::Ipv4(Ipv4Addr::new(37, 254, 97, 224)),
+                        None,
+                        ServiceFlags::P2P_V2,
+                    );
+                    let builder = Builder::new(wallet.network());
                     builder
-                        .after_checkpoint(checkpoint)
-                        .add_peers(vec![(peer_1, None).into(), peer_2])
+                        .chain_state(bip157::chain::ChainState::Checkpoint(checkpoint))
+                        .add_peers(vec![peer_1, peer_2, peer_3])
                         .required_peers(2)
                         .build()
-                        .unwrap()
                 }
                 _ => unimplemented!("Not mainnet nor testnet environments"),
             };
@@ -394,7 +397,6 @@ async fn main() -> anyhow::Result<()> {
 
             let KyotoClient {
                 requester,
-                log_rx,
                 info_rx,
                 warn_rx,
                 event_rx,
@@ -424,7 +426,7 @@ async fn main() -> anyhow::Result<()> {
             tokio::task::spawn(async move { blindbit_subscriber.run().await });
 
             tracing::info!("Initializing log loop...");
-            tokio::task::spawn(async move { trace(log_rx, info_rx, warn_rx).await });
+            tokio::task::spawn(async move { trace(info_rx, warn_rx).await });
 
             tracing::info!("Starting filter subscriber...");
             tokio::task::spawn(async move { filter_subscriber.run().await });

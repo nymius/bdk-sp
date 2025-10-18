@@ -8,7 +8,7 @@ authors.workspace = true
 bitcoin = "0.32.7"
 futures = "0.3"
 indexer = { version = "0.1.0", path = "../indexer", features = ["serde"]}
-kyoto-cbf = { version = "0.13.2", features = ["rusqlite", "filter-control"], default-features = false }
+bip157 = "0.2.0"
 redb = "2.4.0"
 rayon = "1.11.0"
 reqwest = { version = "0.12.23", features = ["json", "rustls-tls", "http2", "charset"], default-features = false }

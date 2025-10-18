@@ -324,10 +324,10 @@ dependencies = [
 name = "bdk_sp_oracles"
 version = "0.1.0"
 dependencies = [
+ "bip157",
  "bitcoin",
  "futures",
  "indexer",
- "kyoto-cbf",
  "rayon",
  "redb",
  "reqwest",
@@ -382,6 +382,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "bip157"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bee00924860370b262cf436f4b04b31af4d8f057ff905b95ce00f5129628d4c3"
+dependencies = [
+ "bip324",
+ "bitcoin",
+ "bitcoin-address-book",
+ "tokio",
+]
+
+[[package]]
 name = "bip324"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -411,6 +423,15 @@ dependencies = [
  "hex_lit",
  "secp256k1",
  "serde",
+]
+
+[[package]]
+name = "bitcoin-address-book"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "16d55a2ccdaa0271ea60355a01fc82e37f33a340df80599d344f9d6e97d46e48"
+dependencies = [
+ "bitcoin",
 ]
 
 [[package]]
@@ -843,18 +864,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fallible-iterator"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
-
-[[package]]
-name = "fallible-streaming-iterator"
-version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
-
-[[package]]
 name = "fastrand"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1075,15 +1084,6 @@ name = "hashbrown"
 version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
-
-[[package]]
-name = "hashlink"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ba4ff7128dee98c7dc9794b6a411377e1404dba1c97deb8d1a55297bd25d8af"
-dependencies = [
- "hashbrown 0.14.5",
-]
 
 [[package]]
 name = "heck"
@@ -1457,18 +1457,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kyoto-cbf"
-version = "0.13.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "805f16bcf1d4738529f230404e7d0ab6e9ecf9e265920c212d446a291a93297e"
-dependencies = [
- "bip324",
- "bitcoin",
- "rusqlite",
- "tokio",
-]
-
-[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1499,17 +1487,6 @@ dependencies = [
  "bitflags 2.9.4",
  "libc",
  "redox_syscall",
-]
-
-[[package]]
-name = "libsqlite3-sys"
-version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c10584274047cb335c23d3e61bcef8e323adae7c5c8c760540f73610177fc3f"
-dependencies = [
- "cc",
- "pkg-config",
- "vcpkg",
 ]
 
 [[package]]
@@ -1966,20 +1943,6 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "rusqlite"
-version = "0.31.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b838eba278d213a8beaf485bd313fd580ca4505a00d5871caeb1457c55322cae"
-dependencies = [
- "bitflags 2.9.4",
- "fallible-iterator",
- "fallible-streaming-iterator",
- "hashlink",
- "libsqlite3-sys",
- "smallvec",
 ]
 
 [[package]]
@@ -2612,12 +2575,6 @@ name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
-
-[[package]]
-name = "vcpkg"
-version = "0.2.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "version_check"
