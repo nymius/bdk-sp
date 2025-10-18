@@ -1,6 +1,6 @@
 use bip157::{
-    BlockHash, Event, IndexedFilter, SyncUpdate, UnboundedReceiver,
-    tokio::sync::mpsc::UnboundedSender,
+    tokio::sync::mpsc::UnboundedSender, BlockHash, Event, IndexedFilter, SyncUpdate,
+    UnboundedReceiver,
 };
 use indexer::bdk_chain::BlockId;
 use redb::{Database, TableDefinition};

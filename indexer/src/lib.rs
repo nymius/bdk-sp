@@ -1,13 +1,13 @@
 use bdk_bitcoind_rpc::bitcoincore_rpc::{Client, RpcApi};
-use bdk_chain::{Merge, TxGraph, tx_graph};
+use bdk_chain::{tx_graph, Merge, TxGraph};
 use bdk_sp::{
     bitcoin::{
-        OutPoint, ScriptBuf, Transaction, TxOut, Txid,
         key::Secp256k1,
         secp256k1::{PublicKey, Scalar, SecretKey},
+        OutPoint, ScriptBuf, Transaction, TxOut, Txid,
     },
     encoding::SilentPaymentCode,
-    receive::{SpOut, SpReceiveError, scan::Scanner},
+    receive::{scan::Scanner, SpOut, SpReceiveError},
 };
 use std::{
     collections::{BTreeMap, BTreeSet},

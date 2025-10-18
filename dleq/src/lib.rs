@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use bitcoin::hashes::{Hash, HashEngine, sha256t_hash_newtype};
+use bitcoin::hashes::{sha256t_hash_newtype, Hash, HashEngine};
 use bitcoin::key::Secp256k1;
 use bitcoin::secp256k1::{PublicKey, Scalar, SecretKey};
 

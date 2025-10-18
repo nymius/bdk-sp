@@ -1,10 +1,10 @@
 use self::indexes::{Label, SpIndex};
-use bdk_chain::{Anchor, BlockId, Merge, TxGraph, TxPosInBlock, tx_graph};
+use bdk_chain::{tx_graph, Anchor, BlockId, Merge, TxGraph, TxPosInBlock};
 use bdk_sp::{
     bitcoin::{
-        Block, Network, OutPoint, ScriptBuf, Transaction, Txid,
         key::Secp256k1,
         secp256k1::{PublicKey, SecretKey},
+        Block, Network, OutPoint, ScriptBuf, Transaction, Txid,
     },
     compute_shared_secret,
     encoding::SilentPaymentCode,

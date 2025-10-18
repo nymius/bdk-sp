@@ -1,7 +1,7 @@
-use crate::filters::kyoto::{DatabaseBuffer, FilterEvent, TABLE_DEF, WriteRange};
-use bip157::{BlockFilter, BlockHash, UnboundedReceiver, tokio::sync::mpsc::UnboundedSender};
+use crate::filters::kyoto::{DatabaseBuffer, FilterEvent, WriteRange, TABLE_DEF};
+use bip157::{tokio::sync::mpsc::UnboundedSender, BlockFilter, BlockHash, UnboundedReceiver};
 use bitcoin::{
-    Amount, Network, absolute::Height, hashes::serde::Deserialize, secp256k1::PublicKey,
+    absolute::Height, hashes::serde::Deserialize, secp256k1::PublicKey, Amount, Network,
 };
 use futures::StreamExt;
 use indexer::{

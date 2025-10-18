@@ -1,4 +1,4 @@
-use crate::serialization::{VERIFY_PROOF_VECTORS, VerifyTestCase};
+use crate::serialization::{VerifyTestCase, VERIFY_PROOF_VECTORS};
 use dleq::dleq_verify_proof;
 
 fn check_generated_proof(test_case: &VerifyTestCase) {

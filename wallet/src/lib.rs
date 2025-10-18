@@ -6,32 +6,31 @@
 //! transaction building, and [`indexer`] for blockchain data management.
 use bdk_sp::{
     bitcoin::{
-        Block, ScriptBuf, Transaction, Txid,
         absolute::{self, Height, LockTime, Time},
-        secp256k1,
+        secp256k1, Block, ScriptBuf, Transaction, Txid,
     },
     encoding::SilentPaymentCode,
 };
 use bdk_tx::{
-    CanonicalUnspents, InputCandidates, TxStatus, TxWithStatus,
     bitcoin::XOnlyPublicKey,
     miniscript::{
-        DescriptorPublicKey,
         descriptor::{SinglePub, SinglePubKey},
         plan::{Assets, Plan},
+        DescriptorPublicKey,
     },
+    CanonicalUnspents, InputCandidates, TxStatus, TxWithStatus,
 };
 use indexer::{
     bdk_chain::{
-        Anchor, Balance, BlockId, CanonicalizationParams, ChainPosition, CheckPoint,
-        ConfirmationBlockTime, TxGraph,
         bdk_core::Merge,
-        bitcoin::{BlockHash, Network, bip32::DerivationPath, key::Secp256k1},
+        bitcoin::{bip32::DerivationPath, key::Secp256k1, BlockHash, Network},
         local_chain::{self, LocalChain},
         miniscript::{
-            Descriptor,
             descriptor::{DescriptorSecretKey, DescriptorType},
+            Descriptor,
         },
+        Anchor, Balance, BlockId, CanonicalizationParams, ChainPosition, CheckPoint,
+        ConfirmationBlockTime, TxGraph,
     },
     v2::SpIndexerV2 as SpIndexer,
 };

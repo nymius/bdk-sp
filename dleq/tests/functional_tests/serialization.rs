@@ -5,7 +5,7 @@ use bitcoin::secp256k1::{PublicKey, SecretKey};
 use once_cell::sync::Lazy;
 
 use csv::ReaderBuilder;
-use serde::{self, Deserialize, de::Error};
+use serde::{self, de::Error, Deserialize};
 
 #[derive(Debug, Deserialize)]
 pub struct VerifyTestCase {
