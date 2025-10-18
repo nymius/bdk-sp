@@ -23,8 +23,8 @@ use bdk_tx::{
 };
 use indexer::{
     bdk_chain::{
-        Anchor, Balance, CanonicalizationParams, ChainPosition, CheckPoint, ConfirmationBlockTime,
-        TxGraph,
+        Anchor, Balance, BlockId, CanonicalizationParams, ChainPosition, CheckPoint,
+        ConfirmationBlockTime, TxGraph,
         bdk_core::Merge,
         bitcoin::{BlockHash, Network, bip32::DerivationPath, key::Secp256k1},
         local_chain::{self, LocalChain},
@@ -51,7 +51,7 @@ pub mod signers;
 #[must_use]
 pub struct ChangeSet {
     /// The starting block height at which this wallet started to operate on.
-    birthday: u32,
+    birthday: BlockId,
     /// The Bitcoin network the wallet operates on.
     network: Option<Network>,
     /// Changes related to the local blockchain data.
@@ -100,7 +100,7 @@ impl Merge for ChangeSet {
 /// and interaction with a blockchain indexer.
 pub struct SpWallet {
     /// The birthday of the wallet, representing the starting block height for scanning.
-    pub birthday: u32,
+    pub birthday: BlockId,
     network: Network,
     chain: LocalChain,
     indexer: SpIndexer<ConfirmationBlockTime>,
@@ -149,7 +149,7 @@ impl SpWallet {
     /// * [`SpWalletError::NonTaprootDescriptor`] if the provided descriptor is not a Taproot descriptor.
     /// * [`SpWalletError::PrivateDataNotAvailable`] if the descriptor cannot provide private key data.
     pub fn new(
-        birthday: u32,
+        birthday: BlockId,
         genesis_hash: BlockHash,
         tr_xprv: &str,
         network: Network,

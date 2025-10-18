@@ -154,15 +154,21 @@ pub enum Commands {
     },
     ScanCbf {
         tweak_server_url: String,
+        #[clap(long, short, default_value = "height")]
         height: Option<u32>,
+        #[clap(long, short, default_value = "hash")]
+        hash: Option<BlockHash>,
     },
     Create {
         /// Network
         #[clap(long, short, default_value = "signet")]
         network: Network,
         /// The block height at which to begin scanning outputs for this wallet
-        #[clap(long, short, default_value = "signet")]
-        birthday: u32,
+        #[clap(long, short, default_value = "height")]
+        birthday_height: u32,
+        /// The block hash at which to begin scanning outputs for this wallet
+        #[clap(long, short, default_value = "hash")]
+        birthday_hash: BlockHash,
         /// Genesis Hash
         genesis_hash: Option<BlockHash>,
     },
@@ -293,7 +299,8 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::ScanCbf {
             tweak_server_url,
-            height: maybe_height,
+            height,
+            hash,
         } => {
             async fn trace(
                 mut log_rx: kyoto::Receiver<String>,
@@ -323,19 +330,33 @@ async fn main() -> anyhow::Result<()> {
 
             tracing::info!("Wallet main SP address: {}", wallet.get_address());
 
-            let sync_height = if let Some(height) = maybe_height {
-                height
-            } else if wallet.birthday <= wallet.chain().tip().height() {
-                wallet.chain().tip().height()
+            let sync_point = if let (Some(height), Some(hash)) = (height, hash) {
+                BlockId { height, hash }
+            } else if wallet.birthday.height <= wallet.chain().tip().height() {
+                let height = wallet.chain().tip().height();
+                let hash = wallet.chain().tip().hash();
+                BlockId { height, hash }
             } else {
-                wallet.birthday
+                let checkpoint = wallet
+                    .chain()
+                    .get(wallet.birthday.height)
+                    .expect("should be something");
+                let height = checkpoint.height();
+                let hash = checkpoint.hash();
+                BlockId { height, hash }
             };
 
-            tracing::info!("Synchronizing from block {sync_height}");
+            tracing::info!(
+                "Synchronizing from block {}:{}",
+                sync_point.hash,
+                sync_point.height
+            );
 
             // Set up the light client
-            let checkpoint =
-                HeaderCheckpoint::closest_checkpoint_below_height(sync_height, wallet.network());
+            let checkpoint = HeaderCheckpoint::closest_checkpoint_below_height(
+                sync_point.height,
+                wallet.network(),
+            );
             let (node, client) = match wallet.network() {
                 Network::Regtest => {
                     let peer = TrustedPeer::new(
@@ -389,7 +410,7 @@ async fn main() -> anyhow::Result<()> {
             .unwrap();
 
             let mut filter_subscriber =
-                FilterSubscriber::new(db_buffer, event_rx, changes_tx, sync_height);
+                FilterSubscriber::new(db_buffer, event_rx, changes_tx, sync_point.height);
 
             tracing::info!("Starting the node...");
             tokio::task::spawn(async move {
@@ -732,7 +753,8 @@ pub fn init_or_load(db_magic: &[u8], db_path: &str) -> anyhow::Result<Option<Ini
     match args.command {
         Commands::Create {
             network,
-            birthday,
+            birthday_height,
+            birthday_hash,
             genesis_hash,
         } => {
             let secp = Secp256k1::new();
@@ -753,6 +775,11 @@ pub fn init_or_load(db_magic: &[u8], db_path: &str) -> anyhow::Result<Option<Ini
             } else {
                 let genesis_block = bitcoin::constants::genesis_block(network);
                 genesis_block.block_hash()
+            };
+
+            let birthday = BlockId {
+                height: birthday_height,
+                hash: birthday_hash,
             };
 
             let wallet = SpWallet::new(birthday, block_hash, &tr_xprv, network).unwrap();
