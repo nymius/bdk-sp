@@ -1,0 +1,496 @@
+set quiet
+
+bdk_data_dir := env('BDK_DATA_DIR', '.bdk')
+
+[doc("List all available commands")]
+default:
+  just --list --unsorted
+
+[group("Workshop")]
+[doc("Launch ephemeral environment without checking dependencies")]
+init: (start "ephemeral") _init_regtest_bdk _init_regtest_sp
+
+[group("Workshop")]
+[doc("Ensure dependencies are installed and launch environment")]
+non_nix_init: _local_install init
+
+[group("Silent payment wallet")]
+[doc("Send a command to sp-cli2 on regtest")]
+regtest-sp COMMAND *ARGS:
+  #!/usr/bin/env bash
+  export DB_PATH=".sp_cli2_regtest.db"
+  export RPC_PASS=$(just cookie)
+  export RPC_USER="__cookie__"
+  export RPC_URL="http://127.0.0.1:18443"
+  sp-cli2 {{COMMAND}} {{ARGS}}
+
+[group("BDK wallet")]
+[doc("Send a command to bdk-cli on regtest")]
+regtest-bdk COMMAND *ARGS:
+  #!/usr/bin/env bash
+  export EXT_DESCRIPTOR=$(cat "{{bdk_data_dir}}/.external_descriptor")
+  export INT_DESCRIPTOR=$(cat "{{bdk_data_dir}}/.internal_descriptor")
+  bdk-cli --datadir "{{bdk_data_dir}}" --network regtest wallet -w regtest -e "$EXT_DESCRIPTOR" -i "$INT_DESCRIPTOR" -c rpc -u http://localhost:18443/ $(just local_cookie_path) -d sqlite {{COMMAND}} {{ARGS}}
+
+[group("Podman")]
+[doc("Set up VM to run containers")]
+machine FORCE="false":
+  #!/usr/bin/env bash
+  machine_created=$(podman machine list --format json | jq -r 'map(.Name) | any(contains("sptabconf7"))')
+  if [ "$machine_created" = "true" ] && [ "{{FORCE}}" = "true" ]; then
+    echo "Machine already created, removing forcefully"
+    podman machine rm -f sptabconf7
+  elif [ "$machine_created" = "true" ]; then
+    echo "Machine already created."
+  else
+    podman machine init --cpus 4 --memory 4096 --disk-size 30 sptabconf7
+  fi
+
+  just startvm
+
+[group("Podman")]
+[doc("Build test node images")]
+build TAG="1.0.0" VERSION="29.0" RELEASE="29.0": machine
+  #!/usr/bin/env bash
+  # Create virtual Containerfile by storing content in file descriptor 3
+  exec 3<<- "EOF"
+    FROM debian:trixie-slim AS debian-builder
+
+    # Install wget dependency
+    RUN apt-get update && apt-get install -y wget
+
+    # Setup bitcoin core binaries download
+    ARG BITCOIN_VERSION=26.0
+    ARG RELEASE=$BITCOIN_VERSION
+    ARG TARGET_ARCH=aarch64
+    ENV BITCOIN_TARBALL=bitcoin-${BITCOIN_VERSION}-${TARGET_ARCH}.tar.gz
+    ENV BITCOIN_URL=https://bitcoincore.org/bin/bitcoin-core-${RELEASE}/${BITCOIN_TARBALL}
+
+    # Install bitcoin core
+    WORKDIR /
+    RUN mkdir -p /bitcoin
+    RUN wget -qO- ${BITCOIN_URL} | tar -xzvf - -C /bitcoin
+
+    FROM rust:slim-trixie AS rust-builder
+    RUN apt-get update && apt-get install -y pkg-config libssl-dev
+    RUN cargo install sccache --locked
+    ENV RUSTC_WRAPPER=sccache SCCACHE_DIR=/sccache
+    # Install dependencies for Esplora
+    RUN apt-get update && apt-get install -y \
+        curl \
+        git \
+        build-essential \
+        pkg-config \
+        libssl-dev \
+        libclang-dev \
+        netcat-openbsd \
+        nano \
+        && rm -rf /var/lib/apt/lists/*
+
+    # Create directory for building
+    RUN mkdir -p /build
+
+    # Build Esplora and Electrum services
+    RUN mkdir -p /electrs
+    WORKDIR /electrs
+    RUN git clone --branch new-index --depth 1 https://github.com/Blockstream/electrs.git .
+    # Remove directories at the end to create smaller images
+    RUN --mount=type=cache,target=$SCCACHE_DIR,sharing=locked cargo build --release --bin electrs
+    RUN cp target/release/electrs /build
+    RUN rm -rf /electrs
+
+    # Build Fast Bitcoin Block Explorer
+    RUN mkdir -p /fbbe
+    WORKDIR /fbbe
+    RUN git clone --depth 1 https://github.com/RCasatta/fbbe .
+    # Remove directories at the end to create smaller images
+    RUN --mount=type=cache,target=$SCCACHE_DIR,sharing=locked cargo build --release --bin fbbe
+    RUN cp target/release/fbbe /build
+    RUN rm -rf /fbbe
+
+    # golang:trixie cannot be updated because of signature issues https://community.intel.com/t5/Intel-Fortran-Compiler/Can-t-update-in-Denian-13-Trixie/m-p/1715126
+    FROM golang:bookworm as go-builder
+    RUN apt-get update && apt-get install wget
+    RUN mkdir -p /blindbit
+    RUN mkdir -p /build
+    WORKDIR /blindbit
+    RUN wget -qO- https://github.com/setavenger/blindbit-oracle/archive/refs/tags/indexes-stable.tar.gz | tar -xzvf - --strip-components=1
+    RUN go mod download
+    RUN env CGO_ENABLED=0 go build -o /build/blindbit ./src
+
+    FROM eclipse-temurin:22.0.2_9-jdk AS java-builder
+    RUN apt-get update && apt-get install -y git rpm fakeroot
+    RUN mkdir -p /build/frigate
+    RUN mkdir -p /frigate
+    WORKDIR /frigate
+    RUN git clone --recursive --branch 1.1.0 --depth 1 https://github.com/sparrowwallet/frigate.git .
+    RUN ./gradlew jpackage
+    RUN cp -r ./build/jpackage/frigate /build/frigate
+    RUN rm -rf /frigate
+
+    FROM debian:trixie-slim
+    ARG BITCOIN_VERSION=26.0
+    ENV PATH="$PATH:/opt/frigate/bin"
+    COPY --from=java-builder /build/frigate/ /opt/
+    COPY --from=rust-builder /build/electrs /usr/local/bin
+    COPY --from=rust-builder /build/fbbe /usr/local/bin
+    COPY --from=go-builder build/blindbit /usr/local/bin
+    COPY --from=debian-builder /bitcoin/bitcoin-${BITCOIN_VERSION}/bin/bitcoin-util /usr/local/bin
+    COPY --from=debian-builder /bitcoin/bitcoin-${BITCOIN_VERSION}/bin/bitcoin-cli /usr/local/bin
+    COPY --from=debian-builder /bitcoin/bitcoin-${BITCOIN_VERSION}/bin/bitcoin-tx /usr/local/bin
+    COPY --from=debian-builder /bitcoin/bitcoin-${BITCOIN_VERSION}/bin/bitcoin-wallet /usr/local/bin
+    COPY --from=debian-builder /bitcoin/bitcoin-${BITCOIN_VERSION}/bin/bitcoind /usr/local/bin
+    COPY --from=debian-builder /bitcoin/bitcoin-${BITCOIN_VERSION}/bin/test_bitcoin /usr/local/bin
+
+    WORKDIR /home
+    ENTRYPOINT ["tail", "-f", "/dev/null"]
+  EOF
+
+  image_exists=$(podman --connection sptabconf7 images --noheading -f reference=docker.io/nymius/sptabconf7:1.0.0 -f reference=localhost/regtest:1.0.0 --format 'table \{\{.ID\}\}')
+
+  os=$(podman info --format json | jq -r '.host.os')
+  arch=$(podman info --format json | jq -r '.host.arch')
+  aarch=$(case $arch in
+    amd64) echo "x86_64" ;;
+    arm64) echo "aarch64" ;;
+    *) echo $arch
+  esac)
+  target_arch="$aarch-linux-gnu" # podman setups a linux VM for us
+  platform="linux/$aarch"
+
+  pulled_blobs=$(podman --connection sptabconf7 pull --platform $platform docker://docker.io/nymius/sptabconf7:$arch-1.0.0 2>&1)
+
+  if [ $? -ne 0 ]; then
+    echo "Image not found on registry"
+  fi
+
+  echo $pulled_blobs | tee /dev/stderr | rg -q "WARNING"
+
+  if [ $? -eq 0 ]; then
+    echo "Pulled image doesn't match host architecture"
+  else
+    echo "Pulled image ready to use"
+    exit
+  fi
+
+  if [[ $image_exists ]]; then
+    echo "Image already built."
+    exit
+  else
+    cat <&3 | podman --connection sptabconf7 build --platform $platform --build-arg BITCOIN_VERSION={{VERSION}} --build-arg RELEASE={{RELEASE}} --build-arg TARGET_ARCH=$target_arch --tag localhost/regtest:{{TAG}} -f -
+  fi
+
+
+[group("Podman")]
+[doc("Create container running test node in allocated VM")]
+create FORCE="false" TAG="1.0.0" NAME="RegtestBitcoinEnv": (build TAG)
+  #!/usr/bin/env bash
+  container_exists=$(podman --connection sptabconf7 ps --all --format json | jq -r '.[] | select(.Names[] | contains("RegtestBitcoinEnv")) | .Id')
+  if [[ $container_exists ]] && [ "{{FORCE}}" = "false" ]; then
+    echo "Container already exists."
+    exit
+  elif [[ $container_exists ]] && [ "{{FORCE}}" = "true" ]; then
+    podman --connection sptabconf7 rm -f $container_exists
+  fi
+
+  arch=$(podman info --format json | jq -r '.host.arch')
+
+  local_build=$(podman --connection sptabconf7 images --noheading -f reference=localhost/regtest:{{TAG}} --format 'table \{\{.ID\}\}' | head -n 1)
+  external_pull=$(podman --connection sptabconf7 images --noheading -f reference=docker.io/nymius/sptabconf7:$arch-{{TAG}} --format 'table \{\{.ID\}\}' | head -n 1)
+
+  if [[ $local_build ]]; then
+    echo "Creating from local build"
+    podman --connection sptabconf7 create --name {{NAME}} --publish 18443:18443 --publish 18444:18444 --publish 3002:3002 --publish 3003:3003 --publish 3004:3004 --publish 60401:60401 localhost/regtest:{{TAG}}
+  elif [[ $external_pull ]]; then
+    echo "Creating from external pull"
+    podman --connection sptabconf7 create --name {{NAME}} --publish 18443:18443 --publish 18444:18444 --publish 3002:3002 --publish 3003:3003 --publish 3004:3004 --publish 60401:60401 docker.io/nymius/sptabconf7:$arch-{{TAG}}
+  fi
+
+[group("Podman")]
+[doc("Start your podman machine")]
+startvm:
+  #!/usr/bin/env bash
+  machine_running=$(podman machine list --format json | jq -r '.[] | select(.Name | contains("sptabconf7")) | .Running')
+  if [ "$machine_running" = "false" ]; then
+    podman machine start sptabconf7 | tail -n1
+  else
+    echo "Machine is already running."
+  fi
+
+[group("Podman")]
+[doc("Start your podman machine and regtest environment")]
+startcontainer: (create "false" "1.0.0")
+  #!/usr/bin/env bash
+  container_state=$(podman --connection sptabconf7 ps --format json | jq -r '.[] | select(.Names[] | contains("RegtestBitcoinEnv")) | .State')
+  if [ "$container_state" = "running" ]; then
+    echo "Container is running"
+    exit
+  fi
+  podman --connection sptabconf7 start RegtestBitcoinEnv
+
+_clean_regtest_bdk:
+  rm -rf {{bdk_data_dir}}/regtest
+
+_clean_regtest_sp:
+  #!/usr/bin/env bash
+  rm -rf ".regtest_tr_xprv"
+  rm -rf ".sp_cli2_regtest.db"
+
+[group("Podman")]
+[doc("Stop your podman machine and running environment")]
+stop:
+  #!/usr/bin/env bash
+  echo "Stopping container"
+
+  machine_running=$(podman machine list --format json | jq -r '.[] | select(.Name | contains("sptabconf7")) | .Running')
+  if [ "$machine_running" = "false" ]; then
+    echo "Machine is not running."
+    exit
+  fi
+
+  container_state=$(podman --connection sptabconf7 ps --format json | jq -r '.[] | select(.Names[] | contains("RegtestBitcoinEnv")) | .State')
+  if [ "$container_state" != "running" ]; then
+    echo "Container is not running"
+  else
+    just cli stop
+    if just podcmd '[ -d /tmp/testenv ]'; then
+      just podcmd "rm -rf /tmp/testenv"
+      just _clean_regtest_sp
+      just _clean_regtest_bdk
+    fi
+    podman --connection sptabconf7 stop RegtestBitcoinEnv
+  fi
+
+  podman machine stop sptabconf7
+
+[group("Podman")]
+[doc("Launch ephemeral environment")]
+start STATE="persistent":
+  #!/usr/bin/env bash
+  trap "just stop" SIGHUP SIGINT SIGQUIT SIGTERM
+  just startcontainer
+
+  ENVDIR="/root/env"
+  if [ "{{STATE}}" = "ephemeral" ]; then
+    ENVDIR="/tmp/testenv"
+  fi
+  LOGDIR="$ENVDIR/log"
+
+  logdir=$(just podcmd "if [ ! -d $LOGDIR ]; then echo 'true'; fi")
+  if [ "$logdir" = "true" ]; then
+    # Create the log directory
+    just podcmd "mkdir -p $LOGDIR"
+  fi
+
+  BLINDBIT_DIR="$ENVDIR/blindbit"
+  FRIGATE_DIR="$ENVDIR/frigate"
+
+  BITCOIND_LOG="$LOGDIR/bitcoin.log"
+  BLINDBIT_LOG="$LOGDIR/blindbit.log"
+  FRIGATE_LOG="$LOGDIR/frigate.log"
+  ESPLORA_LOG="$LOGDIR/esplora.log"
+  FBBE_LOG="$LOGDIR/fbbe.log"
+
+  # Start the bitcoin daemon
+  just podcmd "bitcoind --daemonwait --datadir=$ENVDIR --chain=regtest --txindex --blockfilterindex --peerblockfilters --rpcbind=0.0.0.0 --rpcallowip=0.0.0.0/0 --rpcport=18443 --rest -debuglogfile=$BITCOIND_LOG 2>&1"
+
+  # Start the blockchain explorer
+  just podcmd "fbbe --network regtest --local-addr 0.0.0.0:3003 >> $FBBE_LOG 2>&1 &"
+
+  # Start the Esplora and Electrum services
+  just podcmd "electrs -vvvv --daemon-dir $ENVDIR --db-dir $ENVDIR --http-addr 0.0.0.0:3002 --electrum-rpc-addr 0.0.0.0:60401 --network=regtest --lightmode >> $ESPLORA_LOG 2>&1 &"
+
+  # Create Blindbit oracle config
+  just podcmd "mkdir -p $BLINDBIT_DIR"
+  podman --connection sptabconf7 exec -i RegtestBitcoinEnv /bin/bash -c "cat > $BLINDBIT_DIR/blindbit.toml" <<- EOF
+    # access from container host
+    host = "0.0.0.0:3004"
+    chain = "regtest"
+    rpc_endpoint = "http://127.0.0.1:18443"
+    cookie_path = "$ENVDIR/regtest/.cookie"
+    rpc_pass = ""
+    rpc_user = ""
+    sync_start_height = 1
+    max_parallel_tweak_computations = 4
+    max_parallel_requests = 4
+    tweaks_only = 0
+    tweaks_full_basic = 1
+    tweaks_full_with_dust_filter = 1
+    tweaks_cut_through_with_dust_filter = 1
+  EOF
+
+  just podcmd "blindbit --datadir $BLINDBIT_DIR >> $BLINDBIT_LOG 2>&1 &"
+
+  just podcmd "mkdir -p $FRIGATE_DIR/regtest"
+  podman --connection sptabconf7 exec -i RegtestBitcoinEnv /bin/bash -c "cat > $FRIGATE_DIR/regtest/config" <<- EOF
+    {
+      "coreServer": "http://127.0.0.1:18443",
+      "coreAuthType": "COOKIE",
+      "coreDataDir": "$ENVDIR/regtest",
+      "coreAuth": "user:password",
+      "startIndexing": true,
+      "indexStartHeight": 0,
+      "scriptPubKeyCacheSize": 10000000
+    }
+  EOF
+
+  just podcmd "frigate --dir $FRIGATE_DIR --network regtest >> $FRIGATE_LOG 2>&1 &"
+
+  just mine 1
+
+[group("Podman")]
+[doc("Get path to services state directory")]
+envpath:
+  #!/usr/bin/env bash
+  ENVDIR="/tmp/testenv"
+  testenv=$(just podcmd "if [ -d $ENVDIR ]; then echo 'true'; fi")
+  if [ "$testenv" = "true" ]; then
+    echo $ENVDIR
+  else
+    echo "/root/env"
+  fi
+
+[group("Bitcoin Core")]
+[doc("Print the current session cookie to console")]
+cookie:
+  just podcmd "cat $(just envpath)/regtest/.cookie | cut -d ':' -f2"
+
+[group("Bitcoin Core")]
+[doc("Write the current session cookie to file and return path")]
+local_cookie_path:
+  #!/usr/bin/env bash
+  just podcmd "cat $(just envpath)/regtest/.cookie" > .regtest_cookie
+  echo ".regtest_cookie"
+
+[group("Bitcoin Core")]
+[doc("Mine a block, or mine <BLOCKS> number of blocks")]
+mine BLOCKS="1" ADDRESS="bcrt1q6gau5mg4ceupfhtyywyaj5ge45vgptvawgg3aq":
+  just cli generatetoaddress {{BLOCKS}} {{ADDRESS}}
+  just _waitesplora
+
+[group("Bitcoin Core")]
+[doc("Send mining reward to <ADDRESS>")]
+sendminingrewardto ADDRESS:
+  just cli generatetoaddress 1 {{ADDRESS}}
+
+[group("Bitcoin Core")]
+[doc("Send a command to bitcoin-cli")]
+cli COMMAND *ARGS:
+  #!/usr/bin/env bash
+  touch /tmp/empty.conf
+  bitcoin-cli --conf=/tmp/empty.conf -rpcconnect=127.0.0.1 -rpcport=18443 --chain=regtest --rpcuser=__cookie__ --rpcpassword=$(just cookie) {{COMMAND}} {{ARGS}}
+
+[group("Logs")]
+[doc("Print all logs to console")]
+logs:
+  podman --connection sptabconf7 logs RegtestBitcoinEnv
+
+[group("Logs")]
+[doc("Print bitcoin daemon logs to console")]
+bitcoindlogs:
+  just podcmd "tail -f $(just envpath)/log/bitcoin.log"
+
+[group("Logs")]
+[doc("Print Esplora logs to console")]
+esploralogs:
+  just podcmd "tail -f $(just envpath)/log/esplora.log"
+
+[group("Logs")]
+[doc("Print block explorer logs to console")]
+explorerlogs:
+  just podcmd "tail -f $(just envpath)/log/fbbe.log"
+
+[group("Logs")]
+[doc("Print blindbit logs to console")]
+blindbitlogs:
+  just podcmd "tail -f $(just envpath)/log/blindbit.log"
+
+[group("Logs")]
+[doc("Print frigate logs to console")]
+frigatelogs:
+  just podcmd "tail -f $(just envpath)/log/frigate.log"
+
+[group("Esplora")]
+[doc("Wait for esplora to update changes in blockchain")]
+_waitesplora:
+  just podcmd "tail -n 2 --pid=\$\$ -f $(just envpath)/log/esplora.log | grep -m 1 -E 'DEBUG applying [0-9]+ new headers from height [0-9]+'" >/dev/null 2>&1
+
+[group("Podman")]
+[doc("Enter the shell in the pod")]
+podshell:
+  podman --connection sptabconf7 exec -it RegtestBitcoinEnv /bin/bash
+
+[group("Podman")]
+[doc("Execute command inside pod")]
+[no-exit-message]
+podcmd *ARGS="":
+  #!/usr/bin/env bash
+  containers_running=$(podman machine ls --format json | jq -r .[0].Running)
+  if [ "$containers_running" = "false" ]; then
+    echo "Container is not running"
+  else
+    podman --connection sptabconf7 exec RegtestBitcoinEnv /bin/bash -c '{{ARGS}}'
+  fi
+
+[group("Podman")]
+[doc("Open the block explorer")]
+explorer:
+  open http://127.0.0.1:3003
+
+[group("Docs")]
+[doc("Serve the local docs")]
+servedocs:
+  mkdocs serve
+
+[group("Docs")]
+[doc("Open the website for docs")]
+docs:
+  open https://thunderbiscuit.github.io/regtest-in-a-pod/
+
+[group("Bitcoin Core")]
+[doc("Create a default wallet")]
+createwallet:
+  just cli createwallet podmanwallet
+  just cli -rpcwallet=podmanwallet settxfee 0.0001
+
+[group("Bitcoin Core")]
+[doc("Print an address from the default wallet")]
+newaddress:
+  just cli -rpcwallet=podmanwallet getnewaddress
+
+[group("Bitcoin Core")]
+[doc("Print the balance of the default wallet")]
+walletbalance:
+  just cli -rpcwallet=podmanwallet getbalance
+
+[group("Bitcoin Core")]
+[doc("Send 1 bitcoin to <ADDRESS> using the default wallet")]
+sendto ADDRESS:
+  just cli -rpcwallet=podmanwallet sendtoaddress {{ADDRESS}} 1
+
+_init_regtest_bdk:
+  #!/usr/bin/env bash
+  mkdir -p {{bdk_data_dir}}
+  if [ ! -f "{{bdk_data_dir}}/.external_descriptor" ] || [ ! -f "{{bdk_data_dir}}/.internal_descriptor" ]; then
+    rm -rf {{bdk_data_dir}}/signet
+    rm -rf {{bdk_data_dir}}/regtest
+    XPRV=$(bdk-cli --datadir {{bdk_data_dir}} --network signet key generate | jq -r '.xprv')
+    echo "tr($XPRV/86h/1h/0h/0/*)" > "{{bdk_data_dir}}/.external_descriptor"
+    echo "tr($XPRV/86h/1h/0h/1/*)" > "{{bdk_data_dir}}/.internal_descriptor"
+  fi
+
+_init_regtest_sp:
+  #!/usr/bin/env bash
+  if [ ! -f ".regtest_tr_xprv" ]; then
+    rm -rf ".sp_cli2_regtest.db"
+    BLOCKCHAININFO=$(bitcoin-cli --datadir=$BITCOIN_DATA_DIR --chain=signet getblockchaininfo)
+    HEIGHT=$(echo $BLOCKCHAININFO | jq -r '.blocks')
+    HASH=$(echo $BLOCKCHAININFO | jq -r '.bestblockhash')
+    DB_PATH=".sp_cli2_regtest.db" sp-cli2 create --network regtest --birthday-height $HEIGHT --birthday-hash $HASH | jq -r '.tr_xprv' > ".regtest_tr_xprv"
+  fi
+
+_local_install:
+  #!/usr/bin/env bash
+  which podman || echo "Install podman following the instructions: https://podman.io/docs/installation"
+  cargo install --git https://github.com/nymius/bdk-cli bdk-cli --branch feat/nix-env --all-features
+  cargo install --git https://github.com/nymius/bdk-sp bdk_sp_cli_v2 --branch docs/workshops --all-features

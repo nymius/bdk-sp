@@ -1,10 +1,10 @@
 use self::indexes::{Label, SpIndex};
-use bdk_chain::{Anchor, BlockId, Merge, TxGraph, TxPosInBlock, tx_graph};
+use bdk_chain::{tx_graph, Anchor, BlockId, Merge, TxGraph, TxPosInBlock};
 use bdk_sp::{
     bitcoin::{
-        Block, Network, OutPoint, ScriptBuf, Transaction, Txid,
         key::Secp256k1,
         secp256k1::{PublicKey, SecretKey},
+        Block, Network, OutPoint, ScriptBuf, Transaction, Txid,
     },
     compute_shared_secret,
     encoding::SilentPaymentCode,
@@ -333,20 +333,22 @@ where
         let mut changeset = ChangeSet::<A>::default();
         for (tx_pos, tx) in block.txdata.iter().enumerate().skip(1) {
             let txid = tx.compute_txid();
+
             if let Some(partial_secret) = partial_secrets.get(&txid) {
                 changeset.merge(self.index_tx(tx, partial_secret));
-                if filter(self, tx) {
-                    let anchor = TxPosInBlock {
-                        block,
-                        block_id,
-                        tx_pos,
-                    }
-                    .into();
-                    changeset.graph.merge(self.graph.insert_tx(tx.clone()));
-                    changeset
-                        .graph
-                        .merge(self.graph.insert_anchor(txid, anchor));
+            }
+
+            if filter(self, tx) {
+                let anchor = TxPosInBlock {
+                    block,
+                    block_id,
+                    tx_pos,
                 }
+                .into();
+                changeset.graph.merge(self.graph.insert_tx(tx.clone()));
+                changeset
+                    .graph
+                    .merge(self.graph.insert_anchor(txid, anchor));
             }
         }
         changeset

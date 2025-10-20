@@ -1,15 +1,15 @@
 use bdk_sp::{
     bitcoin::{
-        OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey,
         secp256k1::{PublicKey, Scalar, SecretKey},
+        OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey,
     },
     receive::{SpMeta, SpOut},
 };
 #[cfg(feature = "serde")]
 use serde::{
-    Deserialize, Serialize,
     de::{self, Deserializer, SeqAccess, Visitor},
     ser::{SerializeTuple, Serializer},
+    Deserialize, Serialize,
 };
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -124,7 +124,7 @@ mod scalar_serde {
     use super::Scalar;
     use core::fmt;
     use serde::de::Visitor;
-    use serde::{Deserializer, Serializer, de};
+    use serde::{de, Deserializer, Serializer};
 
     pub fn serialize<S>(s: &Scalar, ser: S) -> Result<S::Ok, S::Error>
     where

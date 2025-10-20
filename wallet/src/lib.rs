@@ -6,32 +6,31 @@
 //! transaction building, and [`indexer`] for blockchain data management.
 use bdk_sp::{
     bitcoin::{
-        Block, Transaction, Txid,
         absolute::{self, Height, LockTime, Time},
-        secp256k1,
+        secp256k1, Block, ScriptBuf, Transaction, Txid,
     },
     encoding::SilentPaymentCode,
 };
 use bdk_tx::{
-    CanonicalUnspents, InputCandidates, TxStatus, TxWithStatus,
     bitcoin::XOnlyPublicKey,
     miniscript::{
-        DescriptorPublicKey,
         descriptor::{SinglePub, SinglePubKey},
         plan::{Assets, Plan},
+        DescriptorPublicKey,
     },
+    CanonicalUnspents, InputCandidates, TxStatus, TxWithStatus,
 };
 use indexer::{
     bdk_chain::{
-        Anchor, Balance, CanonicalizationParams, ChainPosition, CheckPoint, ConfirmationBlockTime,
-        TxGraph,
         bdk_core::Merge,
-        bitcoin::{BlockHash, Network, bip32::DerivationPath, key::Secp256k1},
+        bitcoin::{bip32::DerivationPath, key::Secp256k1, BlockHash, Network},
         local_chain::{self, LocalChain},
         miniscript::{
-            Descriptor,
             descriptor::{DescriptorSecretKey, DescriptorType},
+            Descriptor,
         },
+        Anchor, Balance, BlockId, CanonicalizationParams, ChainPosition, CheckPoint,
+        ConfirmationBlockTime, TxGraph,
     },
     v2::SpIndexerV2 as SpIndexer,
 };
@@ -51,7 +50,7 @@ pub mod signers;
 #[must_use]
 pub struct ChangeSet {
     /// The starting block height at which this wallet started to operate on.
-    birthday: u32,
+    birthday: BlockId,
     /// The Bitcoin network the wallet operates on.
     network: Option<Network>,
     /// Changes related to the local blockchain data.
@@ -100,7 +99,7 @@ impl Merge for ChangeSet {
 /// and interaction with a blockchain indexer.
 pub struct SpWallet {
     /// The birthday of the wallet, representing the starting block height for scanning.
-    pub birthday: u32,
+    pub birthday: BlockId,
     network: Network,
     chain: LocalChain,
     indexer: SpIndexer<ConfirmationBlockTime>,
@@ -149,7 +148,7 @@ impl SpWallet {
     /// * [`SpWalletError::NonTaprootDescriptor`] if the provided descriptor is not a Taproot descriptor.
     /// * [`SpWalletError::PrivateDataNotAvailable`] if the descriptor cannot provide private key data.
     pub fn new(
-        birthday: u32,
+        birthday: BlockId,
         genesis_hash: BlockHash,
         tr_xprv: &str,
         network: Network,
@@ -210,6 +209,36 @@ impl SpWallet {
             chain,
             stage,
         })
+    }
+
+    pub fn unspent_spks(&self) -> Vec<[u8; 34]> {
+        let mut unspent_spks = Vec::<ScriptBuf>::new();
+        for (_, txout) in self
+            .graph()
+            .try_filter_chain_unspents(
+                self.chain(),
+                self.chain().tip().block_id(),
+                CanonicalizationParams::default(),
+                self.indexer()
+                    .index()
+                    .by_xonly()
+                    .map(|(xonly, outpoint)| (xonly, *outpoint)),
+            )
+            .unwrap()
+        {
+            unspent_spks.push(txout.txout.script_pubkey);
+        }
+
+        let spk_bytes: Vec<[u8; 34]> = unspent_spks
+            .into_iter()
+            .map(|spk| {
+                spk.into_bytes()
+                    .try_into()
+                    .expect("all spks should be p2tr scripts which have 34 bytes")
+            })
+            .collect();
+
+        spk_bytes
     }
 
     /// Returns an iterator over the canonical transactions in the wallet.

@@ -2,7 +2,7 @@
 
 use dleq::dleq_generate_proof;
 
-use crate::serialization::{GENERATE_PROOF_VECTORS, GenerateTestCase};
+use crate::serialization::{GenerateTestCase, GENERATE_PROOF_VECTORS};
 
 fn check_generated_proof(test_case: &GenerateTestCase) {
     let GenerateTestCase {

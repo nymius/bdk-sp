@@ -1,8 +1,8 @@
-use indexer::bdk_chain::BlockId;
-use kyoto::{
-    BlockHash, Event, IndexedFilter, SyncUpdate, UnboundedReceiver,
-    tokio::sync::mpsc::UnboundedSender,
+use bip157::{
+    tokio::sync::mpsc::UnboundedSender, BlockHash, Event, IndexedFilter, SyncUpdate,
+    UnboundedReceiver,
 };
+use indexer::bdk_chain::BlockId;
 use redb::{Database, TableDefinition};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -37,7 +37,7 @@ impl DatabaseBuffer {
         {
             let mut table = write.open_table(TABLE_DEF).unwrap();
             for indexed_filter in core::mem::take(&mut self.queue) {
-                writes.insert(indexed_filter.height(), *indexed_filter.block_hash());
+                writes.insert(indexed_filter.height(), indexed_filter.block_hash());
                 table
                     .insert(indexed_filter.height(), indexed_filter.into_contents())
                     .unwrap();
@@ -87,7 +87,7 @@ impl FilterSubscriber {
     pub async fn run(&mut self) -> Result<(), UpdateError> {
         while let Some(message) = self.receiver.recv().await {
             match message {
-                Event::Synced(SyncUpdate { tip, .. }) => {
+                Event::FiltersSynced(SyncUpdate { tip, .. }) => {
                     tracing::info!("Sending new changes to tweak subscriber");
                     let changes = self.db_buffer.write_queue();
                     if self.sender.send(FilterEvent::Changes(changes)).is_err() {

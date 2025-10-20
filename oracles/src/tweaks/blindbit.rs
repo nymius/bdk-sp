@@ -1,13 +1,13 @@
-use crate::filters::kyoto::{DatabaseBuffer, FilterEvent, TABLE_DEF, WriteRange};
+use crate::filters::kyoto::{DatabaseBuffer, FilterEvent, WriteRange, TABLE_DEF};
+use bip157::{tokio::sync::mpsc::UnboundedSender, BlockFilter, BlockHash, UnboundedReceiver};
 use bitcoin::{
-    Amount, Network, absolute::Height, hashes::serde::Deserialize, secp256k1::PublicKey,
+    absolute::Height, hashes::serde::Deserialize, secp256k1::PublicKey, Amount, Network,
 };
 use futures::StreamExt;
 use indexer::{
     bdk_chain::{BlockId, ConfirmationBlockTime},
     v2::SpIndexerV2 as SpIndexer,
 };
-use kyoto::{BlockFilter, BlockHash, UnboundedReceiver, tokio::sync::mpsc::UnboundedSender};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use redb::Database;
 use reqwest::{Client, Url};
@@ -64,7 +64,7 @@ pub struct BlindbitClient {
 }
 
 impl BlindbitClient {
-    pub fn new(host_url: String, network: Network) -> Result<Self, BlindbitError> {
+    pub fn new(host_url: String) -> Result<Self, BlindbitError> {
         let mut host_url = Url::parse(&host_url)?;
         let client = Client::new();
 
@@ -72,8 +72,6 @@ impl BlindbitClient {
         if !host_url.path().ends_with('/') {
             host_url.set_path(&format!("{}/", host_url.path()));
         }
-
-        host_url.set_path(&format!("{}{}/", host_url.path(), network));
 
         tracing::info!("Subscribing to tweak server {}", host_url);
 
@@ -125,6 +123,7 @@ pub enum TweakEvent {
 
 pub struct BlindbitSubscriber {
     db: Arc<Mutex<Database>>,
+    unspent_script_pubkeys: Vec<[u8; 34]>,
     indexer: SpIndexer<ConfirmationBlockTime>,
     client: BlindbitClient,
     requests: UnboundedReceiver<FilterEvent>,
@@ -133,9 +132,9 @@ pub struct BlindbitSubscriber {
 
 impl BlindbitSubscriber {
     pub fn new(
+        unspent_script_pubkeys: Vec<[u8; 34]>,
         indexer: SpIndexer<ConfirmationBlockTime>,
         host_url: String,
-        network: Network,
         requests: UnboundedReceiver<FilterEvent>,
         sender: UnboundedSender<TweakEvent>,
     ) -> Result<(Self, DatabaseBuffer), BlindbitError> {
@@ -146,8 +145,9 @@ impl BlindbitSubscriber {
         Ok((
             Self {
                 db,
+                unspent_script_pubkeys,
                 indexer,
-                client: BlindbitClient::new(host_url, network)?,
+                client: BlindbitClient::new(host_url)?,
                 requests,
                 sender,
             },
@@ -185,8 +185,11 @@ impl BlindbitSubscriber {
             .map(move |(height, hash)| {
                 let client = client.clone();
                 async move {
-                    let tweaks = client.tweaks(height, Amount::from_sat(1000)).await.unwrap();
-                    (height, hash, tweaks)
+                    if let Ok(tweaks) = client.tweaks(height, Amount::from_sat(1000)).await {
+                        (height, hash, tweaks)
+                    } else {
+                        (height, hash, vec![])
+                    }
                 }
             })
             .buffer_unordered(200);
@@ -211,7 +214,10 @@ impl BlindbitSubscriber {
                 })
                 .collect::<HashMap<[u8; 34], PublicKey>>();
 
-            let only_spks: Vec<[u8; 34]> = all_spks.clone().into_keys().collect();
+            let mut only_spks: Vec<[u8; 34]> = all_spks.clone().into_keys().collect();
+            // unspent script pubkeys can only be present in blocks with tweaks, because they are
+            // by themselves inputs available for shared secret derivation
+            only_spks.extend_from_slice(&self.unspent_script_pubkeys);
 
             if !all_spks.is_empty() && filter.match_any(&hash, only_spks.into_iter()).unwrap() {
                 tracing::info!("Match found for block {hash} at height {height}");

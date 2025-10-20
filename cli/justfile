@@ -180,7 +180,7 @@ start STATE="persistent":
   short_date=$(/bin/date +%m%d%y)
   exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
   set -euxo pipefail
-  trap just stop SIGHUP SIGINT SIGQUIT SIGTERM
+  trap "just stop" SIGHUP SIGINT SIGQUIT SIGTERM
   just startcontainer
 
   ENVDIR="/root/env"
@@ -274,7 +274,8 @@ cli COMMAND *ARGS:
   short_date=$(/bin/date +%m%d%y)
   exec {BASH_XTRACEFD}>>"$DEBUG_PREFIX.$short_date".log
   set -euxo pipefail
-  bitcoin-cli --chain=regtest --rpcuser=__cookie__ --rpcpassword=$(just cookie) {{COMMAND}} {{ARGS}}
+  touch /tmp/empty.conf
+  bitcoin-cli --conf=/tmp/empty.conf -rpcconnect=127.0.0.1 -rpcport=18443 --chain=regtest --rpcuser=__cookie__ --rpcpassword=$(just cookie) {{COMMAND}} {{ARGS}}
 
 [group("Logs")]
 [doc("Print all logs to console.")]

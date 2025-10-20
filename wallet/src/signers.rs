@@ -1,10 +1,10 @@
 use bdk_sp::bitcoin::{
-    Network, PrivateKey, XOnlyPublicKey,
     bip32::DerivationPath,
     key::Secp256k1,
     secp256k1::{Scalar, SecretKey},
+    Network, PrivateKey, XOnlyPublicKey,
 };
-use bdk_tx::miniscript::{Descriptor, descriptor::DescriptorSecretKey};
+use bdk_tx::miniscript::{descriptor::DescriptorSecretKey, Descriptor};
 use indexer::v2::indexes::SpIndex;
 use std::{collections::HashMap, str::FromStr};
 

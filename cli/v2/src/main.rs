@@ -3,6 +3,7 @@ use bdk_bitcoind_rpc::{
     bitcoincore_rpc::{Auth, Client, RpcApi},
     Emitter, NO_EXPECTED_MEMPOOL_TXIDS,
 };
+use bdk_coin_select::DrainWeights;
 use bdk_file_store::Store;
 use bdk_sp::{
     bitcoin::{
@@ -26,13 +27,13 @@ use bdk_sp::{
     },
 };
 use bdk_sp_oracles::{
-    filters::kyoto::{FilterEvent, FilterSubscriber},
-    kyoto::{
+    bip157::{
         self,
         tokio::{self, select},
-        AddrV2, Client as KyotoClient, HeaderCheckpoint, IndexedBlock, Info, NodeBuilder,
-        ServiceFlags, TrustedPeer, UnboundedReceiver, Warning,
+        AddrV2, Builder, Client as KyotoClient, HeaderCheckpoint, IndexedBlock, Info, ServiceFlags,
+        TrustedPeer, UnboundedReceiver, Warning,
     },
+    filters::kyoto::{FilterEvent, FilterSubscriber},
     tweaks::blindbit::{BlindbitSubscriber, TweakEvent},
 };
 use bdk_sp_wallet::{
@@ -49,14 +50,14 @@ use rand::RngCore;
 use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
-    net::{IpAddr, Ipv4Addr},
+    env,
+    net::Ipv4Addr,
     str::FromStr,
     sync::Mutex,
     time::{Duration, Instant},
 };
 
 const DB_MAGIC: &[u8] = b"bdk_example_silentpayments";
-const DB_PATH: &str = ".bdk_example_silentpayments.db";
 
 /// Delay for printing status to stdout.
 const STDOUT_PRINT_DELAY: Duration = Duration::from_secs(6);
@@ -153,14 +154,23 @@ pub enum Commands {
     },
     ScanCbf {
         tweak_server_url: String,
+        #[clap(long)]
+        extra_peer: Option<String>,
+        #[clap(long)]
+        height: Option<u32>,
+        #[clap(long)]
+        hash: Option<BlockHash>,
     },
     Create {
         /// Network
         #[clap(long, short, default_value = "signet")]
         network: Network,
         /// The block height at which to begin scanning outputs for this wallet
-        #[clap(long, short, default_value = "signet")]
-        birthday: u32,
+        #[clap(long)]
+        birthday_height: u32,
+        /// The block hash at which to begin scanning outputs for this wallet
+        #[clap(long)]
+        birthday_hash: BlockHash,
         /// Genesis Hash
         genesis_hash: Option<BlockHash>,
     },
@@ -199,6 +209,7 @@ pub enum Commands {
         descriptor: Option<String>,
     },
     Balance,
+    Birthday,
 }
 
 #[tokio::main]
@@ -206,11 +217,17 @@ async fn main() -> anyhow::Result<()> {
     let subscriber = tracing_subscriber::FmtSubscriber::new();
     tracing::subscriber::set_global_default(subscriber).unwrap();
 
+    let db_path = if let Ok(db_path) = env::var("DB_PATH") {
+        db_path
+    } else {
+        ".bdk_example_silentpayments.db".to_string()
+    };
+
     let Init {
         args,
         mut wallet,
         db,
-    } = match init_or_load(DB_MAGIC, DB_PATH)? {
+    } = match init_or_load(DB_MAGIC, &db_path)? {
         Some(init) => init,
         None => return Ok(()),
     };
@@ -283,19 +300,18 @@ async fn main() -> anyhow::Result<()> {
                 println!("{}", serde_json::to_string_pretty(&obj)?);
             }
         }
-        Commands::ScanCbf { tweak_server_url } => {
+        Commands::ScanCbf {
+            tweak_server_url,
+            extra_peer: maybe_extra_peer,
+            height,
+            hash,
+        } => {
             async fn trace(
-                mut log_rx: kyoto::Receiver<String>,
-                mut info_rx: kyoto::Receiver<Info>,
+                mut info_rx: bip157::Receiver<Info>,
                 mut warn_rx: UnboundedReceiver<Warning>,
             ) {
                 loop {
                     select! {
-                        log = log_rx.recv() => {
-                            if let Some(log) = log {
-                                tracing::info!("{log}");
-                            }
-                        }
                         info = info_rx.recv() => {
                             if let Some(info) = info {
                                 tracing::info!("{info}");
@@ -312,52 +328,91 @@ async fn main() -> anyhow::Result<()> {
 
             tracing::info!("Wallet main SP address: {}", wallet.get_address());
 
-            let sync_height = if wallet.birthday <= wallet.chain().tip().height() {
-                wallet.chain().tip().height()
+            let sync_point = if let (Some(height), Some(hash)) = (height, hash) {
+                HeaderCheckpoint::new(height, hash)
+            } else if wallet.birthday.height <= wallet.chain().tip().height() {
+                let height = wallet.chain().tip().height();
+                let hash = wallet.chain().tip().hash();
+                HeaderCheckpoint::new(height, hash)
             } else {
-                wallet.birthday
+                let checkpoint = wallet
+                    .chain()
+                    .get(wallet.birthday.height)
+                    .expect("should be something");
+                let height = checkpoint.height();
+                let hash = checkpoint.hash();
+                HeaderCheckpoint::new(height, hash)
             };
 
-            tracing::info!("Synchronizing from block {sync_height}");
+            tracing::info!(
+                "Synchronizing from block {}:{}",
+                sync_point.hash,
+                sync_point.height
+            );
 
             // Set up the light client
-            let checkpoint =
-                HeaderCheckpoint::closest_checkpoint_below_height(sync_height, wallet.network());
-            let peer_1 = IpAddr::V4(Ipv4Addr::new(95, 217, 198, 121));
-            let peer_2 = TrustedPeer::new(
-                AddrV2::Ipv4(Ipv4Addr::new(23, 137, 57, 100)),
-                None,
-                ServiceFlags::P2P_V2,
-            );
-            let builder = NodeBuilder::new(wallet.network());
-            let (node, client) = builder
-                .after_checkpoint(checkpoint)
-                .add_peers(vec![(peer_1, None).into(), peer_2])
-                .required_peers(2)
-                .build()
-                .unwrap();
+            let checkpoint = if wallet.network() == Network::Bitcoin {
+                HeaderCheckpoint::taproot_activation()
+            } else {
+                HeaderCheckpoint::from_genesis(wallet.network())
+            };
+
+            let mut peers = vec![];
+            match wallet.network() {
+                Network::Regtest => {
+                    peers.push(TrustedPeer::new(
+                        AddrV2::Ipv4(Ipv4Addr::new(127, 0, 0, 1)),
+                        None,
+                        ServiceFlags::P2P_V2,
+                    ));
+                }
+                Network::Signet => {
+                    peers.push(TrustedPeer::new(
+                        AddrV2::Ipv4(Ipv4Addr::new(170, 75, 162, 231)),
+                        None,
+                        ServiceFlags::P2P_V2,
+                    ));
+                }
+                _ => unimplemented!("Not mainnet nor testnet environments"),
+            };
+
+            if let Some(extra_peer) = maybe_extra_peer {
+                peers.push(TrustedPeer::new(
+                    AddrV2::Ipv4(Ipv4Addr::from_str(&extra_peer)?),
+                    None,
+                    ServiceFlags::P2P_V2,
+                ));
+            };
+
+            let (node, client) = {
+                let builder = Builder::new(wallet.network());
+                builder
+                    .chain_state(bip157::chain::ChainState::Checkpoint(checkpoint))
+                    .add_peers(peers)
+                    .required_peers(1)
+                    .build()
+            };
             let (changes_tx, changes_rx) = tokio::sync::mpsc::unbounded_channel::<FilterEvent>();
             let (matches_tx, mut matches_rx) = tokio::sync::mpsc::unbounded_channel::<TweakEvent>();
 
             let KyotoClient {
                 requester,
-                log_rx,
                 info_rx,
                 warn_rx,
                 event_rx,
             } = client;
 
             let (mut blindbit_subscriber, db_buffer) = BlindbitSubscriber::new(
+                wallet.unspent_spks(),
                 wallet.indexer().clone(),
                 tweak_server_url,
-                wallet.network(),
                 changes_rx,
                 matches_tx,
             )
             .unwrap();
 
             let mut filter_subscriber =
-                FilterSubscriber::new(db_buffer, event_rx, changes_tx, sync_height);
+                FilterSubscriber::new(db_buffer, event_rx, changes_tx, sync_point.height);
 
             tracing::info!("Starting the node...");
             tokio::task::spawn(async move {
@@ -371,7 +426,7 @@ async fn main() -> anyhow::Result<()> {
             tokio::task::spawn(async move { blindbit_subscriber.run().await });
 
             tracing::info!("Initializing log loop...");
-            tokio::task::spawn(async move { trace(log_rx, info_rx, warn_rx).await });
+            tokio::task::spawn(async move { trace(info_rx, warn_rx).await });
 
             tracing::info!("Starting filter subscriber...");
             tokio::task::spawn(async move { filter_subscriber.run().await });
@@ -409,10 +464,10 @@ async fn main() -> anyhow::Result<()> {
                                         }
                                     }
 
-                                    if !partial_secrets.is_empty() {
-                                        tracing::info!("Block {hash} is relevant, indexing.");
-                                        wallet.apply_block_relevant(block, partial_secrets, height);
-                                    }
+                                    tracing::info!("Block {hash} is relevant, indexing.");
+                                    // if all outputs in transactions in the block are not p2tr
+                                    // outputs, partial secrets is going to be empty
+                                    wallet.apply_block_relevant(block, partial_secrets, height);
                                 }
                             }
                         }
@@ -607,11 +662,22 @@ async fn main() -> anyhow::Result<()> {
                     SelectorParams::new(
                         FeeRate::from_sat_per_vb_unchecked(fee_rate),
                         outputs,
-                        bdk_tx::ChangeDescriptor::Manual {
-                            script_pubkey: wallet.get_change_address().get_placeholder_p2tr_spk(),
-                            max_weight_to_satisfy_wu: SpWallet::DEFAULT_SPENDING_WEIGHT,
-                        },
+                        bdk_tx::ScriptSource::from_script(
+                            wallet.get_change_address().get_placeholder_p2tr_spk(),
+                        ),
                         bdk_tx::ChangePolicyType::NoDustAndLeastWaste { longterm_feerate },
+                        DrainWeights {
+                            output_weight: TxOut {
+                                script_pubkey: wallet
+                                    .get_change_address()
+                                    .get_placeholder_p2tr_spk(),
+                                value: Amount::ZERO,
+                            }
+                            .weight()
+                            .to_wu(),
+                            spend_weight: SpWallet::DEFAULT_SPENDING_WEIGHT,
+                            n_outputs: 1,
+                        },
                     ),
                 )?;
 
@@ -660,6 +726,13 @@ async fn main() -> anyhow::Result<()> {
             );
             println!("{}", serde_json::to_string_pretty(&obj)?);
         }
+        Commands::Birthday => {
+            let BlockId { height, hash } = wallet.birthday;
+            let mut obj = serde_json::Map::new();
+            obj.insert("height".to_string(), json!(height));
+            obj.insert("hash".to_string(), json!(hash));
+            println!("{}", serde_json::to_string_pretty(&obj)?);
+        }
         Commands::Create { .. } => {
             unreachable!("already handled by init_or_load")
         }
@@ -689,7 +762,8 @@ pub fn init_or_load(db_magic: &[u8], db_path: &str) -> anyhow::Result<Option<Ini
     match args.command {
         Commands::Create {
             network,
-            birthday,
+            birthday_height,
+            birthday_hash,
             genesis_hash,
         } => {
             let secp = Secp256k1::new();
@@ -712,8 +786,13 @@ pub fn init_or_load(db_magic: &[u8], db_path: &str) -> anyhow::Result<Option<Ini
                 genesis_block.block_hash()
             };
 
+            let birthday = BlockId {
+                height: birthday_height,
+                hash: birthday_hash,
+            };
+
             let wallet = SpWallet::new(birthday, block_hash, &tr_xprv, network).unwrap();
-            let mut db = Store::<ChangeSet>::create(DB_MAGIC, DB_PATH)?;
+            let mut db = Store::<ChangeSet>::create(db_magic, db_path)?;
             if let Some(stage) = wallet.staged() {
                 db.append(stage).unwrap();
             }
