@@ -360,7 +360,7 @@ dependencies = [
 [[package]]
 name = "bdk_tx"
 version = "0.1.0"
-source = "git+https://github.com/nymius/bdk-tx?branch=feat/add-ChangeDescriptor-enum#bcb018f61ff2f38e0b48aa1e19810b47831130a1"
+source = "git+https://github.com/bitcoindevkit/bdk-tx?branch=master#ac547ce3c40919f1dcd4de7e966c3d8f20dd497c"
 dependencies = [
  "bdk_coin_select",
  "miniscript",
