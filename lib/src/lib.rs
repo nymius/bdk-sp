@@ -9,6 +9,8 @@
 pub mod scan;
 pub mod send;
 
+pub use secp256k1;
+
 use bitcoin_primitives::OutPoint;
 
 /// Error type returned when attempting to retrieve the minimum outpoint

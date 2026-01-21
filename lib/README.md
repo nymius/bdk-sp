@@ -6,14 +6,15 @@
   </p>
 </div>
 
-Convenience types for working with [BIP-352: Silent Payments](https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki)
-in Rust. This crate provides encoding/decoding utilities and helper structures:
+This crate re-exposes the cryptographic primitives (ECDH, key tweaking, etc.)
+from secp256k1 and provides a small set of convenience types to implement BIP 352:
 
 | Type | Description |
 |------|-------------|
 | `SpCode` | Silent payment code encoding/decoding (Bech32m format) |
 | `SpScan` | Helper for organizing scan and spend keys |
 | `SpMeta` | Metadata container for silent payment information |
+| `SpLabel` | Label support for generating distinct codes |
 | `LexMin` | Tracks the lexicographically minimal outpoint |
 
 ## Installation
@@ -83,4 +84,5 @@ let min_outpoint_bytes = tracker.bytes()?;
 
 ## See Also
 
-- [BIP-352 Specification](https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki)
+- [BIP-352 Specification](https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki).
+- [rust-secp256k1 PR#876](https://github.com/rust-bitcoin/rust-secp256k1/pull/876) for cryptographic operations.
