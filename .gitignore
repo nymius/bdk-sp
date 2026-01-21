@@ -20,3 +20,13 @@ Cargo.lock
 
 # Ignore cargo-mutants generated output
 /mutants.out*
+
+# Ignore all files with these suffixes
+*.redb
+*_txid
+*_xprv
+*-link
+**/result
+
+# Ignore nix env files related to sptabconf7 workshop
+**/sptabconf7
