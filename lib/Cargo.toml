@@ -6,7 +6,6 @@ authors.workspace = true
 
 [dependencies]
 bech32 = { version = "0.11.1" }
-bitcoin-primitives = { version = "=1.0.0-rc.2" }
 bitcoin-network-kind = { version = "0.1.0" }
 serde = { version = "1", optional = true, default-features = false, features = ["derive"] }
 secp256k1 = { version = "0.32.0-beta.2", features = ["serde"]}

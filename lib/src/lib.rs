@@ -1,314 +1,444 @@
-/// This library provides a small set of structs and methods to help in the implementation of the
-/// Silent Payments protocol.
+/// This library provides functionality for encoding, decoding, and managing Silent Payment codes.
 ///
-/// Silent Payments are a privacy-enhancing protocol in Bitcoin that allows recipients to receive
-/// payments without revealing their code or creating any on-chain link between payments.
+/// The module handles:
+/// - Creating and parsing Silent Payment codes in Bech32m format
+/// - Managing scan and spend keys for Silent Payment codes.
+/// - Network-specific encoding with appropriate human-readable prefixes
+/// - Version compatibility for forward/backward compatibility
 ///
-/// This library **does not implement** the cryptographic primitives required for the full
-/// implementation of Silent Payments.
-pub mod scan;
-pub mod send;
+/// Silent Payment codes follow a structured format with network-specific prefixes:
+/// - `sp` for Bitcoin mainnet
+/// - `tsp` for Testnet/Signet
+/// - `sprt` for Regtest
+pub use self::error::{ParseError, UnknownHrpError, VersionError};
+use bech32::{
+    Fe32, Hrp,
+    primitives::{
+        Bech32m,
+        decode::CheckedHrpstring,
+        iter::{ByteIterExt, Fe32IterExt},
+    },
+};
+use bitcoin_network_kind::{Network, TestnetVersion::V4};
+use secp256k1::PublicKey;
 
-use bitcoin_primitives::OutPoint;
+pub mod error;
 
-/// Error type returned when attempting to retrieve the minimum outpoint
-/// from a [`LexMin`] that has not received any updates.
+/// Human readable prefix for encoding bitcoin Mainnet Silent Payment codes
+pub const SP: Hrp = Hrp::parse_unchecked("sp");
+/// Human readable prefix for encoding bitcoin Testnet (3 or 4) or Signet Silent Payment codes
+pub const TSP: Hrp = Hrp::parse_unchecked("tsp");
+/// Human readable prefix for encoding bitcoin regtest Silent Payment codes
+pub const SPRT: Hrp = Hrp::parse_unchecked("sprt");
+
+/// Represents a Silent Payment code containing the necessary keys and network information.
 ///
-/// This error indicates that [`LexMin::bytes`] was called before any
-/// outpoints were provided via [`LexMin::update`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NoMinOutpoint;
-
-impl core::error::Error for NoMinOutpoint {}
-
-impl core::fmt::Display for NoMinOutpoint {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "No minimal outpoint, update at least once")
-    }
+/// A Silent Payment code consists of:
+/// - A version byte indicating the protocol version
+/// - A scan public key used for scanning the blockchain for payments
+/// - A spend public key used for spending received payments
+/// - The Bitcoin network to which this code applies
+///
+/// Silent payment codes are encoded using [`Bech32m`] with network-specific human-readable prefixes
+/// and can be converted to and from string representations.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct SpCode {
+    /// The protocol version (currently the only supported one is v0)
+    version: u8,
+    /// The public key used for scanning the blockchain for payments
+    pub scan: PublicKey,
+    /// The public key used for spending received payments
+    pub spend: PublicKey,
+    /// The Bitcoin network this code is valid for
+    pub network: Network,
 }
 
-/// A structure for tracking the lexicographically minimal [`OutPoint`].
-///
-/// `LexMin` maintains a reference to the smallest outpoint seen so far, using lexicographic
-/// comparison. The comparison first orders by Txid bytes, then by output index in little-endian
-/// byte order.
-///
-/// # Lifetime
-/// The `'a` lifetime parameter ensures that the tracked outpoint references
-/// remain valid for the duration of the `LexMin` instance.
-///
-/// # Example
-/// ```rust
-/// # use rust_bip352::LexMin;
-/// # use bitcoin_primitives::{Txid, OutPoint};
-/// let mut tracker = LexMin::default();
-///
-/// let outpoint1 = OutPoint {
-///     txid: Txid::from_byte_array([8u8; 32]),
-///     vout: 0,
-/// };
-/// let outpoint2 = OutPoint {
-///     txid: Txid::from_byte_array([5u8; 32]),
-///     vout: 100,
-/// };
-///
-/// tracker.update(&outpoint1);
-/// tracker.update(&outpoint2);
-///
-/// let min_bytes = tracker.bytes().expect("updated at least once");
-/// ```
-#[derive(Default)]
-pub struct LexMin<'a> {
-    /// The current minimum outpoint, or `None` if no outpoints have been provided.
-    current_min: Option<&'a OutPoint>,
-}
-
-impl<'a> LexMin<'a> {
-    /// Updates the tracker with a new outpoint and returns the current minimum.
-    ///
-    /// Compares the provided `outpoint` with the current minimum using
-    /// lexicographic ordering:
-    /// 1. First, compares txids as byte arrays
-    /// 2. If txids are equal, compares output indices as little-endian bytes
+impl SpCode {
+    /// Creates a new version 0 Silent Payment code.
     ///
     /// # Arguments
-    /// * `outpoint` - A reference to the outpoint to compare against the current minimum.
+    /// * `scan` - The public key used for scanning the blockchain
+    /// * `spend` - The public key used for spending received funds
+    /// * `network` - The Bitcoin network this code is valid for
     ///
     /// # Returns
-    /// A reference to the lexicographically smallest outpoint seen so far,
-    /// including the newly provided one.
-    pub fn update(&mut self, outpoint: &'a OutPoint) -> &'a OutPoint {
-        if let Some(min) = self.current_min {
-            let new_min = core::cmp::min_by(outpoint, min, |a, b| {
-                // Compare txids first
-                let a_txid = a.txid.to_byte_array();
-                let b_txid = b.txid.to_byte_array();
-
-                // If txids are different, compare them
-                match a_txid.cmp(&b_txid) {
-                    core::cmp::Ordering::Equal => {
-                        // If txids are equal, compare vouts directly
-                        let a_vout_bytes = a.vout.to_le_bytes();
-                        let b_vout_bytes = b.vout.to_le_bytes();
-                        a_vout_bytes.cmp(&b_vout_bytes)
-                    }
-                    other => other,
-                }
-            });
-            self.current_min = Some(new_min);
-            new_min
-        } else {
-            self.current_min = Some(outpoint);
-            outpoint
+    /// A new [`SpCode`] with version 0
+    ///
+    /// # Examples
+    /// ```rust
+    /// use rust_bip352::SpCode;
+    /// use bitcoin_network_kind::Network;
+    /// use secp256k1::{SecretKey, PublicKey};
+    ///
+    /// # let secret_key = SecretKey::from_byte_array([0xcd; 32]).expect("32 bytes, within curve order");
+    /// # let scan_pk = PublicKey::from_secret_key(&secret_key);
+    /// # let spend_pk = scan_pk;
+    ///
+    /// // Generate scan_pk and spend_pk in a secure way.
+    ///
+    /// let sp_code = SpCode::new_v0(scan_pk, spend_pk, Network::Bitcoin);
+    /// assert_eq!(sp_code.version(), 0);
+    /// ```
+    pub fn new_v0(scan: PublicKey, spend: PublicKey, network: Network) -> Self {
+        SpCode {
+            version: 0,
+            scan,
+            spend,
+            network,
         }
     }
 
-    /// Returns the 36-byte serialized representation of the minimum outpoint.
-    ///
-    /// The format is:
-    /// - bytes `[0..32]`: Txid as a byte array
-    /// - bytes `[32..36]`: Output index as little-endian `u32`
-    ///
-    /// # Errors
-    /// Returns [`NoMinOutpoint`] if [`LexMin::update`] has never been called.
+    /// Returns the version of this Silent Payment code.
     ///
     /// # Returns
-    /// A 36-byte array containing the serialized minimum outpoint.
-    pub fn bytes(&self) -> Result<[u8; 36], NoMinOutpoint> {
-        if let Some(min) = self.current_min {
-            let mut result = [0u8; 36];
-            result[..32].copy_from_slice(&min.txid.to_byte_array());
-            result[32..36].copy_from_slice(&min.vout.to_le_bytes());
+    /// The version number as a `u8`
+    ///
+    /// # Examples
+    /// ```rust
+    /// use rust_bip352::SpCode;
+    /// use bitcoin_network_kind::Network;
+    /// use secp256k1::{SecretKey, PublicKey};
+    ///
+    /// # let secret_key = SecretKey::from_byte_array([0xcd; 32]).expect("32 bytes, within curve order");
+    /// # let scan_pk = PublicKey::from_secret_key(&secret_key);
+    /// # let spend_pk = scan_pk;
+    ///
+    /// // Assuming we have a valid SpCode
+    /// # let sp_code = SpCode::new_v0(scan_pk, spend_pk, Network::Bitcoin);
+    ///
+    /// let version = sp_code.version();
+    /// assert_eq!(version, 0);
+    /// ```
+    pub fn version(&self) -> u8 {
+        self.version
+    }
+}
 
-            Ok(result)
+impl core::fmt::Display for SpCode {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let hrp = match self.network {
+            Network::Bitcoin => SP,
+            Network::Testnet(..) | Network::Signet => TSP,
+            Network::Regtest => SPRT,
+        };
+
+        let scan_key_bytes = self.scan.serialize();
+        let tweaked_spend_pubkey_bytes = self.spend.serialize();
+
+        let data = [scan_key_bytes, tweaked_spend_pubkey_bytes].concat();
+
+        let version =
+            Fe32::try_from(self.version).expect("should be within the GF(32) limits: 0-31");
+
+        let encoded_silent_payment_code = data
+            .iter()
+            .copied()
+            .bytes_to_fes()
+            .with_checksum::<Bech32m>(&hrp)
+            .with_witness_version(version)
+            .chars()
+            .collect::<String>();
+
+        f.write_str(&encoded_silent_payment_code)
+    }
+}
+
+impl TryFrom<&str> for SpCode {
+    type Error = ParseError;
+
+    /// Attempts to parse a string as a Silent Payment code.
+    ///
+    /// This implementation decodes a [`Bech32m`] string into a Silent Payment code,
+    /// handling different networks and versions appropriately.
+    ///
+    /// # Arguments
+    /// * `s` - The string to parse
+    ///
+    /// # Errors
+    /// Returns [`ParseError`] if the string could not be parsed.
+    ///
+    /// # Returns
+    /// The parsed [`SpCode`].
+    ///
+    /// # Examples
+    /// ```rust
+    /// use rust_bip352::SpCode;
+    /// use bitcoin_network_kind::Network;
+    ///
+    /// let sp_code_str = "sp1qq0u4yswlkqx36shz7j8mwt335p4el5txc8tt6yny3dqewlw4rwdqkqewtzh728u7mzkne3uf0a35mzqlm0jf4q2kgc5aakq4d04a9l734ujpez3s";
+    ///
+    /// let result = SpCode::try_from(sp_code_str);
+    ///
+    /// if let Ok(sp_code) = result {
+    ///     println!("Successfully parsed Silent Payment code");
+    ///     assert_eq!(sp_code.network, Network::Bitcoin);
+    /// } else {
+    ///     println!("Failed to parse Silent Payment code");
+    /// }
+    /// ```
+    fn try_from(s: &str) -> Result<SpCode, ParseError> {
+        let checked_hrpstring = CheckedHrpstring::new::<Bech32m>(s)?;
+        let hrp = checked_hrpstring.hrp();
+        let mut payload = checked_hrpstring.fe32_iter::<&mut dyn Iterator<Item = u8>>();
+
+        let version = payload.nth(0).into_iter().collect::<Vec<_>>()[0].to_u8();
+        let data = payload.fes_to_bytes().collect::<Vec<u8>>();
+        let keys = match version {
+            0 => {
+                if data.len() != 66 {
+                    return Err(VersionError::WrongPayloadLength)?;
+                } else {
+                    data
+                }
+            }
+            1..=30 => {
+                if data.len() < 66 {
+                    return Err(VersionError::WrongPayloadLength)?;
+                } else {
+                    data.into_iter().take(66).collect::<Vec<u8>>()
+                }
+            }
+            31 => return Err(VersionError::BackwardIncompatibleVersion)?,
+            _ => unreachable!("GF(32) values can only belong to the 0-31 range"),
+        };
+
+        let network = if hrp == SP {
+            Ok(Network::Bitcoin)
+        } else if hrp == TSP {
+            Ok(Network::Testnet(V4))
+        } else if hrp == SPRT {
+            Ok(Network::Regtest)
         } else {
-            Err(NoMinOutpoint)
-        }
+            Err(UnknownHrpError(hrp.to_string()))
+        }?;
+
+        let scan = PublicKey::from_slice(&keys[..33])?;
+        let spend = PublicKey::from_slice(&keys[33..66])?;
+
+        Ok(Self {
+            scan,
+            spend,
+            network,
+            version,
+        })
     }
 }
 
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod test {
-    mod lex_min {
-        use crate::LexMin;
-        use bitcoin_primitives::{OutPoint, Txid};
+    #[cfg(feature = "serde")]
+    mod silent_payment_code {
+        use crate::SpCode;
+        use once_cell::sync::Lazy;
+        use serde::Deserialize;
 
-        #[test]
-        fn different_txids_and_vouts() {
-            let mut lex_min = LexMin::default();
-            let outpoints = [
-                OutPoint {
-                    txid: Txid::from_byte_array([3u8; 32]),
-                    vout: 2,
-                },
-                OutPoint {
-                    txid: Txid::from_byte_array([2u8; 32]),
-                    vout: 1,
-                },
-                OutPoint {
-                    txid: Txid::from_byte_array([5u8; 32]),
-                    vout: 3,
-                },
-            ];
-
-            for outpoint in outpoints.iter() {
-                lex_min.update(outpoint);
+        const ENCODING_TEST_VECTORS: &str = r#"
+        [
+          {
+            "index": 0,
+            "comment": "successfully parse mainnet code",
+            "input": "sp1qq0u4yswlkqx36shz7j8mwt335p4el5txc8tt6yny3dqewlw4rwdqkqewtzh728u7mzkne3uf0a35mzqlm0jf4q2kgc5aakq4d04a9l734ujpez3s",
+            "error": null,
+            "output": {
+              "version": 0,
+              "spend": "032e58afe51f9ed8ad3cc7897f634d881fdbe49a81564629ded8156bebd2ffd1af",
+              "scan": "03f95241dfb00d1d42e2f48fb72e31a06b9fd166c1d6bd12648b41977dd51b9a0b",
+              "network": "bitcoin"
             }
+          },
+          {
+            "index": 1,
+            "comment": "successfully parse testnet code",
+            "input": "tsp1qq0u4yswlkqx36shz7j8mwt335p4el5txc8tt6yny3dqewlw4rwdqkqewtzh728u7mzkne3uf0a35mzqlm0jf4q2kgc5aakq4d04a9l734uxwehmt",
+            "error": null,
+            "output": {
+              "version": 0,
+              "spend": "032e58afe51f9ed8ad3cc7897f634d881fdbe49a81564629ded8156bebd2ffd1af",
+              "scan": "03f95241dfb00d1d42e2f48fb72e31a06b9fd166c1d6bd12648b41977dd51b9a0b",
+              "network": "testnet4"
+            }
+          },
+          {
+            "index": 2,
+            "comment": "successfully parse regtest code",
+            "input": "sprt1qq0u4yswlkqx36shz7j8mwt335p4el5txc8tt6yny3dqewlw4rwdqkqewtzh728u7mzkne3uf0a35mzqlm0jf4q2kgc5aakq4d04a9l734u5ddn6e",
+            "error": null,
+            "output": {
+              "version": 0,
+              "spend": "032e58afe51f9ed8ad3cc7897f634d881fdbe49a81564629ded8156bebd2ffd1af",
+              "scan": "03f95241dfb00d1d42e2f48fb72e31a06b9fd166c1d6bd12648b41977dd51b9a0b",
+              "network": "regtest"
+            }
+          },
+          {
+            "index": 3,
+            "comment": "fail to parse mainnet code with invalid spend key",
+            "input": "sp19q0u4yswlkqx36shz7j8mwt335p4el5txc8tt6yny3dqewlw4rwdqhpj0pezd9rdd9lvdcxz54gcwgph24j020xzu0nxvx6a0gr9u39ce35yz3n50",
+            "error": "malformed public key",
+            "output": null
+          },
+          {
+            "index": 4,
+            "comment": "fail to parse mainnet code with invalid scan key",
+            "input": "sp19m66lz4dwzqcqe5vjndhawxr7x40cv8mjgxgzjuylmujqzhnelkgs7qle2fqalvqdr4pw9ay0kuhrrgrtnlgkdswkh5fxfz6pja7a2xu6pvv50l9w",
+            "error": "malformed public key",
+            "output": null
+          },
+          {
+            "index": 5,
+            "comment": "fail to parse code with wrong hrp",
+            "input": "bc1qq0u4yswlkqx36shz7j8mwt335p4el5txc8tt6yny3dqewlw4rwdqkqle2fqalvqdr4pw9ay0kuhrrgrtnlgkdswkh5fxfz6pja7a2xu6pvgqultw",
+            "error": "unknown hrp: bc",
+            "output": null
+          },
+          {
+            "index": 6,
+            "comment": "successfully parse v5 code with data portion above 66 bytes",
+            "input": "sp19q0u4yswlkqx36shz7j8mwt335p4el5txc8tt6yny3dqewlw4rwdqkqewtzh728u7mzkne3uf0a35mzqlm0jf4q2kgc5aakq4d04a9l734ug7pexw6tsec0xextt0qextmudpaenmxyj688a48326cerg99n62kca3jutrxw3efjdytad3dyreupeugcdusgazwad388e6zfcu76056zzuz",
+            "error": null,
+            "output": {
+              "version": 0,
+              "spend": "032e58afe51f9ed8ad3cc7897f634d881fdbe49a81564629ded8156bebd2ffd1af",
+              "scan": "03f95241dfb00d1d42e2f48fb72e31a06b9fd166c1d6bd12648b41977dd51b9a0b",
+              "network": "bitcoin"
+            }
+          },
+          {
+            "index": 7,
+            "comment": "fail to parse code with v31",
+            "input": "sp1lq0u4yswlkqx36shz7j8mwt335p4el5txc8tt6yny3dqewlw4rwdqkqle2fqalvqdr4pw9ay0kuhrrgrtnlgkdswkh5fxfz6pja7a2xu6pvccpqt4",
+            "error": "version 31 codes are not backward compatible",
+            "output": null
+          },
+          {
+            "index": 8,
+            "comment": "fail to parse v0 mainnet code with invalid data size",
+            "error": "payload length does not match version spec",
+            "input": "sp1qq0u4yswlkqx36shz7j8mwt335p4el5txc8tt6yny3dqewlw4rwdqkqle2fqalvqdr4pw9ay0kuhrrgrtnlgkdswkh5fxfz6pja7a2xu6pdcn3286hvtm4jmfp67nnfxfk2ah8wy9t93u5dxs7qd56agnxuujkh27y86v3jlyzp65r47zumz4w4wje869xpaym6qzhxztcef7s4qfrzvyk2",
+            "output": null
+          },
+          {
+            "index": 9,
+            "comment": "fail to parse v5 mainnet code with short data size",
+            "error": "payload length does not match version spec",
+            "input": "sp19q0u4yswlkqx36shz7j8mwt335p4el5txc8tt6yny3dqewlw4rwdqknjxnvv",
+            "output": null
+          },
+          {
+            "index": 10,
+            "comment": "fail to parse mainnet code with invalid checksum",
+            "input": "sp1qq0u4yswlkqx36shz7j8mwt335p4el5txc8tt6yny3dqewlw4rwdqkqewtzh728u7mzkne3uf0a35mzqlm0jf4q2kgc5aakq4d04a9l734ujptzes",
+            "error": "invalid checksum",
+            "output": null
+          }
+        ]
+    "#;
 
-            let result = lex_min.bytes().expect("should succeed");
+        static ENCODING_TEST_CASES: Lazy<Vec<EncodingTestCase>> =
+            Lazy::new(|| serde_json::from_str(ENCODING_TEST_VECTORS).expect("Invalid JSON"));
 
-            let mut expected_bytes = [2u8; 36];
-            expected_bytes[32..36].copy_from_slice(&1u32.to_le_bytes());
+        #[derive(Debug, Deserialize)]
+        struct EncodingTestCase {
+            pub index: usize,
+            #[serde(alias = "comment")]
+            pub _comment: String,
+            pub input: String,
+            pub output: Option<TestOutput>,
+            pub error: Option<String>,
+        }
 
-            assert_eq!(result, expected_bytes);
+        #[derive(Debug, Deserialize)]
+        struct TestOutput {
+            #[serde(alias = "version")]
+            pub _version: u8,
+            pub scan: String,
+            pub spend: String,
+            pub network: String,
+        }
+
+        fn assert_encoding(test_index: usize) {
+            let test_case = &ENCODING_TEST_CASES[test_index];
+            assert_eq!(test_case.index, test_index);
+            if test_case.error.is_some() && test_case.output.is_none() {
+                let expected_error = test_case.error.clone().expect("already checked is some");
+                let output = SpCode::try_from(test_case.input.as_str());
+                assert!(output.is_err());
+                assert_eq!(expected_error, output.unwrap_err().to_string());
+            } else if test_case.output.is_some() {
+                let TestOutput {
+                    scan,
+                    spend,
+                    network,
+                    ..
+                } = test_case.output.as_ref().expect("already checked is some");
+                let sp_code = SpCode::try_from(test_case.input.as_str()).unwrap();
+                assert_eq!(scan, &sp_code.scan.to_string());
+                assert_eq!(spend, &sp_code.spend.to_string());
+                assert_eq!(network, &sp_code.network.to_string());
+                // Check roundtrip
+                if sp_code.version() == 0 {
+                    assert_eq!(test_case.input, sp_code.to_string());
+                }
+            } else {
+                panic!("test case definition is wrong");
+            }
         }
 
         #[test]
-        fn fail_if_not_updated() {
-            let e = LexMin::default().bytes().expect_err("should fail");
-            assert_eq!("No minimal outpoint, update at least once", e.to_string());
+        fn vector_0_successfully_parse_mainnet_code() {
+            assert_encoding(0);
         }
 
         #[test]
-        fn identical_txid_different_vouts() {
-            let mut lex_min = LexMin::default();
-            let txid = Txid::from_byte_array([0u8; 32]);
-            let outpoints = [
-                OutPoint { txid, vout: 10 },
-                OutPoint { txid, vout: 2 },
-                OutPoint { txid, vout: 5 },
-            ];
-
-            for outpoint in outpoints.iter() {
-                lex_min.update(outpoint);
-            }
-
-            let result = lex_min.bytes().expect("should succeed");
-
-            let mut expected_bytes = [0u8; 36];
-            expected_bytes[32..36].copy_from_slice(&2u32.to_le_bytes());
-            assert_eq!(result, expected_bytes);
+        fn vector_1_successfully_parse_testnet_code() {
+            assert_encoding(1);
         }
 
         #[test]
-        fn same_vout_different_txid() {
-            let mut lex_min = LexMin::default();
-            let outpoints = [
-                OutPoint {
-                    txid: Txid::from_byte_array([2u8; 32]),
-                    vout: 7,
-                },
-                OutPoint {
-                    txid: Txid::from_byte_array([1u8; 32]),
-                    vout: 7,
-                },
-                OutPoint {
-                    txid: Txid::from_byte_array([3u8; 32]),
-                    vout: 7,
-                },
-            ];
-
-            for outpoint in outpoints.iter() {
-                lex_min.update(outpoint);
-            }
-
-            let result = lex_min.bytes().expect("should succeed");
-
-            let mut expected_bytes = [1u8; 36];
-            expected_bytes[32..36].copy_from_slice(&7u32.to_le_bytes());
-            assert_eq!(result, expected_bytes);
+        fn vector_2_successfully_parse_regtest_code() {
+            assert_encoding(2);
         }
 
         #[test]
-        fn edge_case_vout_is_u32_max() {
-            let mut lex_min = LexMin::default();
-            let outpoints = [
-                OutPoint {
-                    txid: Txid::from_byte_array([1u8; 32]),
-                    vout: u32::MAX,
-                },
-                OutPoint {
-                    txid: Txid::from_byte_array([1u8; 32]),
-                    vout: u32::MIN,
-                },
-            ];
-
-            for outpoint in outpoints.iter() {
-                lex_min.update(outpoint);
-            }
-
-            let result = lex_min.bytes().expect("should succeed");
-
-            let mut expected_bytes = [1u8; 36];
-            expected_bytes[..32].copy_from_slice(&[1u8; 32]);
-            expected_bytes[32..36].copy_from_slice(&u32::MIN.to_le_bytes());
-            assert_eq!(result, expected_bytes);
+        fn vector_3_fail_to_parse_mainnet_code_with_invalid_spend_key() {
+            assert_encoding(3);
         }
 
         #[test]
-        fn txid_takes_precedence() {
-            let mut lex_min = LexMin::default();
-            let outpoints = [
-                OutPoint {
-                    txid: Txid::from_byte_array([8u8; 32]),
-                    vout: 0,
-                },
-                OutPoint {
-                    txid: Txid::from_byte_array([5u8; 32]),
-                    vout: 100,
-                },
-            ];
-
-            for outpoint in outpoints.iter() {
-                lex_min.update(outpoint);
-            }
-
-            let result = lex_min.bytes().expect("should succeed");
-
-            let mut expected_bytes = [5u8; 36];
-            expected_bytes[32..36].copy_from_slice(&100u32.to_le_bytes());
-            assert_eq!(result, expected_bytes);
+        fn vector_4_fail_to_parse_mainnet_code_with_invalid_scan_key() {
+            assert_encoding(4);
         }
 
         #[test]
-        fn txid_endianness_matters() {
-            let mut lex_min = LexMin::default();
-            // big endian: 0x[00][00][00][01]
-            // big endian: 0x[a1][b1][c1][d1]
-            let mut txid_bytes_be = [0u8; 32];
-            txid_bytes_be[0] = 1;
+        fn vector_5_fail_to_parse_code_with_wrong_hrp() {
+            assert_encoding(5);
+        }
 
-            // little endian: 0x[01][00][00][00]
-            // little endian: 0x[a2][b2][c2][d2]
-            let mut txid_bytes_le = [0u8; 32];
-            txid_bytes_le[31] = 1;
+        #[test]
+        fn vector_6_successfully_parse_higher_version_code_with_data_portion_above_66_bytes() {
+            assert_encoding(6);
+        }
 
-            let outpoints = [
-                OutPoint {
-                    txid: Txid::from_byte_array(txid_bytes_be),
-                    vout: 1,
-                },
-                OutPoint {
-                    txid: Txid::from_byte_array(txid_bytes_le),
-                    vout: 1,
-                },
-            ];
+        #[test]
+        fn vector_7_fail_to_parse_code_with_v31() {
+            assert_encoding(7);
+        }
 
-            for outpoint in outpoints.iter() {
-                lex_min.update(outpoint);
-            }
+        #[test]
+        fn vector_8_fail_to_parse_v0_mainnet_code_with_invalid_data_size() {
+            assert_encoding(8);
+        }
 
-            // if Txid is big endian then: [a1] < [a2] => expected_bytes = txid_bytes_be
-            // if Txid is little endian then: [d2] < [d1] => expected_bytes = txid_bytes_le
-            let result = lex_min.bytes().expect("should succeed");
+        #[test]
+        fn vector_9_fail_to_parse_v5_mainnet_code_with_short_data_size() {
+            assert_encoding(9);
+        }
 
-            let mut expected_bytes = [0u8; 36];
-            // Txid is little endian
-            expected_bytes[31] = 1;
-            expected_bytes[32..36].copy_from_slice(&1u32.to_le_bytes());
-
-            assert_eq!(result, expected_bytes);
+        #[test]
+        fn vector_10_fail_to_parse_mainnet_code_with_invalid_checksum() {
+            assert_encoding(10);
         }
     }
 }
