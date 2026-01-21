@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "silentpayments",
-    "cli/v1", "cli/v2", "dleq", "indexer", "fuzz", "wallet", "oracles"
+    "cli/v1", "cli/v2", "dleq", "indexer", "fuzz", "wallet", "oracles", "lib"
 ]
 default-members = [
     "silentpayments", "dleq", "indexer",
