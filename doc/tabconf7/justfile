@@ -198,10 +198,10 @@ create FORCE="false" TAG="1.0.0" NAME="RegtestBitcoinEnv": (build TAG)
 
   if [[ $local_build ]]; then
     echo "Creating from local build"
-    podman --connection sptabconf7 create --name {{NAME}} --publish 18443:18443 --publish 18444:18444 --publish 3002:3002 --publish 3003:3003 --publish 3004:3004 --publish 60401:60401 localhost/regtest:{{TAG}}
+    podman --connection sptabconf7 create --name {{NAME}} --publish 18443:18443 --publish 18444:18444 --publish 3002:3002 --publish 3003:3003 --publish 3004:3004 --publish 60401:60401 --publish 57001:57001 localhost/regtest:{{TAG}}
   elif [[ $external_pull ]]; then
     echo "Creating from external pull"
-    podman --connection sptabconf7 create --name {{NAME}} --publish 18443:18443 --publish 18444:18444 --publish 3002:3002 --publish 3003:3003 --publish 3004:3004 --publish 60401:60401 docker.io/nymius/sptabconf7:$arch-{{TAG}}
+    podman --connection sptabconf7 create --name {{NAME}} --publish 18443:18443 --publish 18444:18444 --publish 3002:3002 --publish 3003:3003 --publish 3004:3004 --publish 60401:60401 --publish 57001:57001 docker.io/nymius/sptabconf7:$arch-{{TAG}}
   fi
 
 [group("Podman")]
