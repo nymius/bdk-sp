@@ -110,9 +110,9 @@ pub struct SpMeta {
 #[derive(Clone, Debug, PartialEq)]
 pub struct SpScan {
     /// The secret key used for scanning transactions.
-    scan_sk: SecretKey,
+    pub scan_sk: SecretKey,
     /// The public key corresponding to the spend secret key.
-    spend_pk: PublicKey,
+    pub spend_pk: PublicKey,
 }
 
 impl SpScan {
