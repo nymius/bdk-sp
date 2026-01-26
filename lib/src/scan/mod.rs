@@ -96,7 +96,7 @@ impl<'de> Deserialize<'de> for SpLabel {
 pub struct SpMeta {
     /// The tweak which combined with the spend secret key produces the secret key to unlock this
     /// output.
-    pub tweak: SecretKey,
+    pub tweak: [u8; 32],
     /// If this output was sent to a labeled code, contains the label number.
     pub label: Option<u32>,
 }
