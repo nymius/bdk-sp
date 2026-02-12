@@ -653,6 +653,8 @@ async fn main() -> anyhow::Result<()> {
 
             let (tip_height, tip_time) = wallet.tip_info();
             let longterm_feerate = FeeRate::from_sat_per_vb_unchecked(1);
+            let change_placeholder_spk = wallet.get_change_address().get_placeholder_p2tr_spk();
+            let change_min_value = change_placeholder_spk.minimal_non_dust().to_sat();
             let selection = wallet
                 .all_candidates()
                 .regroup(group_by_spk())
@@ -660,23 +662,23 @@ async fn main() -> anyhow::Result<()> {
                 .into_selection(
                     selection_algorithm_lowest_fee_bnb(longterm_feerate, 100_000),
                     SelectorParams::new(
-                        FeeRate::from_sat_per_vb_unchecked(fee_rate),
+                        bdk_tx::FeeStrategy::FeeRate(FeeRate::from_sat_per_vb_unchecked(fee_rate)),
                         outputs,
                         bdk_tx::ScriptSource::from_script(
                             wallet.get_change_address().get_placeholder_p2tr_spk(),
                         ),
-                        bdk_tx::ChangePolicyType::NoDustAndLeastWaste { longterm_feerate },
-                        DrainWeights {
-                            output_weight: TxOut {
-                                script_pubkey: wallet
-                                    .get_change_address()
-                                    .get_placeholder_p2tr_spk(),
-                                value: Amount::ZERO,
-                            }
-                            .weight()
-                            .to_wu(),
-                            spend_weight: SpWallet::DEFAULT_SPENDING_WEIGHT,
-                            n_outputs: 1,
+                        bdk_coin_select::ChangePolicy {
+                            min_value: change_min_value,
+                            drain_weights: DrainWeights {
+                                output_weight: TxOut {
+                                    script_pubkey: change_placeholder_spk,
+                                    value: Amount::ZERO,
+                                }
+                                .weight()
+                                .to_wu(),
+                                spend_weight: SpWallet::DEFAULT_SPENDING_WEIGHT,
+                                n_outputs: 1,
+                            },
                         },
                     ),
                 )?;

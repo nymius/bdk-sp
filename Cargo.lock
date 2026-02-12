@@ -360,10 +360,12 @@ dependencies = [
 [[package]]
 name = "bdk_tx"
 version = "0.1.0"
-source = "git+https://github.com/bitcoindevkit/bdk-tx?branch=master#ac547ce3c40919f1dcd4de7e966c3d8f20dd497c"
+source = "git+https://github.com/bitcoindevkit/bdk-tx?rev=8d201770ffc81f89d4d3ae92c362f9f936ad5958#8d201770ffc81f89d4d3ae92c362f9f936ad5958"
 dependencies = [
  "bdk_coin_select",
  "miniscript",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
 ]
 
 [[package]]
