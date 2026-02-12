@@ -46,7 +46,7 @@
               cargoLock = {
                 lockFile = ./Cargo.lock;
                 outputHashes = {
-                  "bdk_tx-0.1.0" = "sha256-kND3yQ80ld8bQskf1Y+aDgJnZegTEviVV9d2zc7wwuQ=";
+                  "bdk_tx-0.1.0" = "sha256-29weg2aCn+4MHC9DJLSBd09RS7igbTqF/fKRd5u5ef4=";
                 };
               };
 
