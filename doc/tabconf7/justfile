@@ -493,4 +493,4 @@ _local_install:
   #!/usr/bin/env bash
   which podman || echo "Install podman following the instructions: https://podman.io/docs/installation"
   cargo install --git https://github.com/nymius/bdk-cli bdk-cli --branch feat/nix-env --all-features
-  cargo install --git https://github.com/nymius/bdk-sp bdk_sp_cli_v2 --branch docs/workshops --all-features
+  cargo install --git https://github.com/bitcoindevkit/bdk-sp bdk_sp_cli_v2 --branch master --all-features
