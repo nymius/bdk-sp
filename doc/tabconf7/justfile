@@ -483,7 +483,7 @@ _init_regtest_sp:
   #!/usr/bin/env bash
   if [ ! -f ".regtest_tr_xprv" ]; then
     rm -rf ".sp_cli2_regtest.db"
-    BLOCKCHAININFO=$(bitcoin-cli --datadir=$BITCOIN_DATA_DIR --chain=signet getblockchaininfo)
+    BLOCKCHAININFO=$(bitcoin-cli --datadir=$BITCOIN_DATA_DIR --chain=regtest getblockchaininfo)
     HEIGHT=$(echo $BLOCKCHAININFO | jq -r '.blocks')
     HASH=$(echo $BLOCKCHAININFO | jq -r '.bestblockhash')
     DB_PATH=".sp_cli2_regtest.db" sp-cli2 create --network regtest --birthday-height $HEIGHT --birthday-hash $HASH | jq -r '.tr_xprv' > ".regtest_tr_xprv"
@@ -493,4 +493,4 @@ _local_install:
   #!/usr/bin/env bash
   which podman || echo "Install podman following the instructions: https://podman.io/docs/installation"
   cargo install --git https://github.com/nymius/bdk-cli bdk-cli --branch feat/nix-env --all-features
-  cargo install --git https://github.com/nymius/bdk-sp bdk_sp_cli_v2 --branch docs/workshops --all-features
+  cargo install --git https://github.com/bitcoindevkit/bdk-sp bdk_sp_cli_v2 --branch master --all-features
