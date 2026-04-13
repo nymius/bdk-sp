@@ -335,13 +335,7 @@ async fn main() -> anyhow::Result<()> {
                 let hash = wallet.chain().tip().hash();
                 HeaderCheckpoint::new(height, hash)
             } else {
-                let checkpoint = wallet
-                    .chain()
-                    .get(wallet.birthday.height)
-                    .expect("should be something");
-                let height = checkpoint.height();
-                let hash = checkpoint.hash();
-                HeaderCheckpoint::new(height, hash)
+                HeaderCheckpoint::new(wallet.birthday.height, wallet.birthday.hash)
             };
 
             tracing::info!(
