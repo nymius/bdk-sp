@@ -28,9 +28,7 @@ regtest-sp COMMAND *ARGS:
 [doc("Send a command to bdk-cli on regtest")]
 regtest-bdk COMMAND *ARGS:
   #!/usr/bin/env bash
-  export EXT_DESCRIPTOR=$(cat "{{bdk_data_dir}}/.external_descriptor")
-  export INT_DESCRIPTOR=$(cat "{{bdk_data_dir}}/.internal_descriptor")
-  bdk-cli --datadir "{{bdk_data_dir}}" --network regtest wallet -w regtest -e "$EXT_DESCRIPTOR" -i "$INT_DESCRIPTOR" -c rpc -u http://localhost:18443/ $(just local_cookie_path) -d sqlite {{COMMAND}} {{ARGS}}
+  bdk-cli --datadir "{{bdk_data_dir}}" --network regtest wallet -w regtest {{COMMAND}} {{ARGS}}
 
 [group("Podman")]
 [doc("Set up VM to run containers")]
@@ -229,7 +227,8 @@ startcontainer: (create "false" "1.0.0")
   podman --connection sptabconf7 start RegtestBitcoinEnv
 
 _clean_regtest_bdk:
-  rm -rf {{bdk_data_dir}}/regtest
+  rm -rf "{{bdk_data_dir}}/regtest"
+  dasel -i toml --root "wallets.regtest = null" < .bdk/config.toml > .bdk/config.toml.tmp && mv .bdk/config.toml.tmp .bdk/config.toml
 
 _clean_regtest_sp:
   #!/usr/bin/env bash
@@ -356,13 +355,6 @@ cookie:
   just podcmd "cat $(just envpath)/regtest/.cookie | cut -d ':' -f2"
 
 [group("Bitcoin Core")]
-[doc("Write the current session cookie to file and return path")]
-local_cookie_path:
-  #!/usr/bin/env bash
-  just podcmd "cat $(just envpath)/regtest/.cookie" > .regtest_cookie
-  echo ".regtest_cookie"
-
-[group("Bitcoin Core")]
 [doc("Mine a block, or mine <BLOCKS> number of blocks")]
 mine BLOCKS="1" ADDRESS="bcrt1q6gau5mg4ceupfhtyywyaj5ge45vgptvawgg3aq":
   just cli generatetoaddress {{BLOCKS}} {{ADDRESS}}
@@ -470,13 +462,15 @@ sendto ADDRESS:
 
 _init_regtest_bdk:
   #!/usr/bin/env bash
-  mkdir -p {{bdk_data_dir}}
-  if [ ! -f "{{bdk_data_dir}}/.external_descriptor" ] || [ ! -f "{{bdk_data_dir}}/.internal_descriptor" ]; then
-    rm -rf {{bdk_data_dir}}/signet
-    rm -rf {{bdk_data_dir}}/regtest
-    XPRV=$(bdk-cli --datadir {{bdk_data_dir}} --network signet key generate | jq -r '.xprv')
-    echo "tr($XPRV/86h/1h/0h/0/*)" > "{{bdk_data_dir}}/.external_descriptor"
-    echo "tr($XPRV/86h/1h/0h/1/*)" > "{{bdk_data_dir}}/.internal_descriptor"
+  regtest_wallet_created=$(bdk-cli --datadir "{{bdk_data_dir}}" wallets | jq -r 'any(.wallets[].name; . == "regtest")')
+  if [ $regtest_wallet_created == "false" ]; then
+    mkdir -p "{{bdk_data_dir}}"
+    rm -rf "{{bdk_data_dir}}/regtest"
+    COOKIE=$(just podcmd "cat $(just envpath)/regtest/.cookie")
+    XPRV=$(bdk-cli --datadir "{{bdk_data_dir}}" --network regtest key generate | jq -r '.xprv')
+    EXT_DESCRIPTOR=$(echo "tr($XPRV/86h/1h/0h/0/*)")
+    INT_DESCRIPTOR=$(echo "tr($XPRV/86h/1h/0h/1/*)")
+    bdk-cli --datadir "{{bdk_data_dir}}" --network regtest wallet -w regtest config -e "$EXT_DESCRIPTOR" -i "$INT_DESCRIPTOR" -c rpc -u http://localhost:18443/ -a "$COOKIE" -d sqlite
   fi
 
 _init_regtest_sp:
