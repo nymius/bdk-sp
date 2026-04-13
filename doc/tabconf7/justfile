@@ -144,7 +144,7 @@ build TAG="1.0.0" VERSION="29.0" RELEASE="29.0": machine
     ENTRYPOINT ["tail", "-f", "/dev/null"]
   EOF
 
-  image_exists=$(podman --connection sptabconf7 images --noheading -f reference=docker.io/nymius/sptabconf7:1.0.0 -f reference=localhost/regtest:1.0.0 --format 'table \{\{.ID\}\}')
+  image_exists=$(podman --connection sptabconf7 images --noheading -f reference=docker.io/nymius/sptabconf7:{{TAG}} -f reference=localhost/regtest:{{TAG}} --format 'table \{\{.ID\}\}')
 
   os=$(podman info --format json | jq -r '.host.os')
   arch=$(podman info --format json | jq -r '.host.arch')
@@ -156,7 +156,7 @@ build TAG="1.0.0" VERSION="29.0" RELEASE="29.0": machine
   target_arch="$aarch-linux-gnu" # podman setups a linux VM for us
   platform="linux/$aarch"
 
-  pulled_blobs=$(podman --connection sptabconf7 pull --platform $platform docker://docker.io/nymius/sptabconf7:$arch-1.0.0 2>&1)
+  pulled_blobs=$(podman --connection sptabconf7 pull --platform $platform docker://docker.io/nymius/sptabconf7:$arch-{{TAG}} 2>&1)
 
   if [ $? -ne 0 ]; then
     echo "Image not found on registry"
@@ -198,10 +198,10 @@ create FORCE="false" TAG="1.0.0" NAME="RegtestBitcoinEnv": (build TAG)
 
   if [[ $local_build ]]; then
     echo "Creating from local build"
-    podman --connection sptabconf7 create --name {{NAME}} --publish 18443:18443 --publish 18444:18444 --publish 3002:3002 --publish 3003:3003 --publish 3004:3004 --publish 60401:60401 localhost/regtest:{{TAG}}
+    podman --connection sptabconf7 create --name {{NAME}} --publish 18443:18443 --publish 18444:18444 --publish 3002:3002 --publish 3003:3003 --publish 3004:3004 --publish 60401:60401 --publish 57001:57001 localhost/regtest:{{TAG}}
   elif [[ $external_pull ]]; then
     echo "Creating from external pull"
-    podman --connection sptabconf7 create --name {{NAME}} --publish 18443:18443 --publish 18444:18444 --publish 3002:3002 --publish 3003:3003 --publish 3004:3004 --publish 60401:60401 docker.io/nymius/sptabconf7:$arch-{{TAG}}
+    podman --connection sptabconf7 create --name {{NAME}} --publish 18443:18443 --publish 18444:18444 --publish 3002:3002 --publish 3003:3003 --publish 3004:3004 --publish 60401:60401 --publish 57001:57001 docker.io/nymius/sptabconf7:$arch-{{TAG}}
   fi
 
 [group("Podman")]
@@ -217,7 +217,7 @@ startvm:
 
 [group("Podman")]
 [doc("Start your podman machine and regtest environment")]
-startcontainer: (create "false" "1.0.0")
+startcontainer FORCE="false" TAG="1.0.0": (create FORCE TAG)
   #!/usr/bin/env bash
   container_state=$(podman --connection sptabconf7 ps --format json | jq -r '.[] | select(.Names[] | contains("RegtestBitcoinEnv")) | .State')
   if [ "$container_state" = "running" ]; then
