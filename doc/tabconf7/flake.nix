@@ -59,6 +59,7 @@
           paths = with pkgs;
             [
               jq
+              dasel
               podman
               qrencode
               xclip
@@ -95,8 +96,6 @@
               export RPC_PASS=$(cat $BITCOIN_DATA_DIR/signet/.cookie | cut -d ':' -f2)
               export RPC_URL="http://127.0.0.1:38332/"
               export TR_XPRV=$(cat ".tr_xprv")
-              export EXT_DESCRIPTOR=$(cat "$BDK_DATA_DIR/.external_descriptor")
-              export INT_DESCRIPTOR=$(cat "$BDK_DATA_DIR/.internal_descriptor")
               export EXTRA_PEER=$(bitcoin-cli --datadir=$BITCOIN_DATA_DIR --chain=signet getpeerinfo | jq -r 'map(select(.servicesnames[] | contains ("COMPACT"))) | .[0].addr' | cut -sd ":" -f1)
             '';
           };
@@ -125,7 +124,7 @@
 
                           cat > "$EXTRA_SCRIPTS/signet-bdk" <<'EOF'
               #!/usr/bin/env bash
-              bdk-cli --datadir "$BDK_DATA_DIR" --network signet wallet -w signet -e "$EXT_DESCRIPTOR" -i "$INT_DESCRIPTOR" -c rpc -u http://localhost:38332/ "$BITCOIN_DATA_DIR/signet/.cookie" -d sqlite "$@"
+              bdk-cli --datadir "$BDK_DATA_DIR" wallet -w signet "$@"
               EOF
 
                           chmod +x "$EXTRA_SCRIPTS/signet-bdk"
@@ -164,12 +163,15 @@
                           export RPC_PASS=$(cat $BITCOIN_DATA_DIR/signet/.cookie | cut -d ':' -f2)
                           export RPC_URL="http://127.0.0.1:38332/"
 
-                          if [ ! -f "$BDK_DATA_DIR/.external_descriptor" ] || [ ! -f "$BDK_DATA_DIR/.internal_descriptor" ]; then
+                           dasel -i toml --root 'wallets.signet.rpc_user = $RPC_USER' < .bdk/config.toml > .bdk/config.toml.tmp && mv .bdk/config.toml.tmp .bdk/config.toml
+                           dasel -i toml --root 'wallets.signet.rpc_password = $RPC_PASS' < .bdk/config.toml > .bdk/config.toml.tmp && mv .bdk/config.toml.tmp .bdk/config.toml
+
+                          if [ ! $(bdk-cli --datadir "$BDK_DATA_DIR" wallets | jq -r 'any(.wallets[].name; . == "signet")') ]; then
                             rm -rf $BDK_DATA_DIR/signet
-                            rm -rf $BDK_DATA_DIR/regtest
                             XPRV=$(bdk-cli --datadir $BDK_DATA_DIR --network signet key generate | jq -r '.xprv')
-                            echo "tr($XPRV/86h/1h/0h/0/*)" > "$BDK_DATA_DIR/.external_descriptor"
-                            echo "tr($XPRV/86h/1h/0h/1/*)" > "$BDK_DATA_DIR/.internal_descriptor"
+                            EXT_DESCRIPTOR=$(echo "tr($XPRV/86h/1h/0h/0/*)")
+                            INT_DESCRIPTOR=$(echo "tr($XPRV/86h/1h/0h/1/*)")
+                            bdk-cli --datadir "$BDK_DATA_DIR" --network signet wallet -w signet config -e "$EXT_DESCRIPTOR" -i "$INT_DESCRIPTOR" -c rpc -u $RPC_URL $BITCOIN_DATA_DIR/signet/.cookie -d sqlite
                           fi
 
                           if [ ! -f ".tr_xprv" ]; then
@@ -183,8 +185,7 @@
                           just init
 
                           export TR_XPRV=$(cat ".tr_xprv")
-                          export EXT_DESCRIPTOR=$(cat "$BDK_DATA_DIR/.external_descriptor")
-                          export INT_DESCRIPTOR=$(cat "$BDK_DATA_DIR/.internal_descriptor")
+
                           export EXTRA_PEER=$(bitcoin-cli --datadir=$BITCOIN_DATA_DIR --chain=signet getpeerinfo | jq -r 'map(select(.servicesnames[] | contains ("COMPACT"))) | .[0].addr' | cut -sd ":" -f1)
 
                           trap "bitcoin-cli --datadir=$BITCOIN_DATA_DIR --chain=signet stop && just stop" EXIT
