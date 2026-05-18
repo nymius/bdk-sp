@@ -26,8 +26,8 @@ fn process_sending_given(
             create_silentpayment_partial_secret(&lex_min.bytes()?, &spks_with_keys)?;
         Ok(
             create_silentpayment_scriptpubkeys(partial_secret, recipients)
-                .into_iter()
-                .flat_map(|(_, set)| set)
+                .into_values()
+                .flatten()
                 .collect(),
         )
     } else {
