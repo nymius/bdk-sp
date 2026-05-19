@@ -479,10 +479,18 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::ScanRpc { rpc_args } => {
             let rpc_client = rpc_args.new_client()?;
+            let start_height = if wallet.birthday.height <= wallet.chain().tip().height() {
+                wallet.chain().tip().height()
+            } else {
+                wallet.birthday.height
+            };
+
+            tracing::info!("Synchronizing from block height {}", start_height);
+
             let mut emitter = Emitter::new(
                 &rpc_client,
                 wallet.chain().tip(),
-                0,
+                start_height,
                 NO_EXPECTED_MEMPOOL_TXIDS,
             );
 
