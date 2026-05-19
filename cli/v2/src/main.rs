@@ -484,6 +484,9 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 wallet.birthday.height
             };
+
+            tracing::info!("Synchronizing from block height {}", start_height);
+
             let mut emitter = Emitter::new(
                 &rpc_client,
                 wallet.chain().tip(),
