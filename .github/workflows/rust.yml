@@ -23,6 +23,8 @@ jobs:
             toolchain: ${{ matrix.rust.version }}
       - name: Test
         run: cargo test --no-fail-fast --all-features
+      - name: Slow Test
+        run: "cargo test --no-fail-fast --all-features -- --ignored slow::"
 
   fmt-clippy:
     runs-on: ubuntu-latest

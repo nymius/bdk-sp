@@ -3,6 +3,8 @@ alias c := check
 alias f := fmt
 alias t := test
 alias p := pre-push
+alias ts := test-slow
+alias ta := test-all
 
 [doc("List all available commands.")]
 default:
@@ -25,9 +27,16 @@ check:
 fmt:
   cargo +nightly fmt
 
-[doc("Run all tests on the workspace with all features")]
+[doc("Run fast tests  on the workspace with all features (skips tests annotated with #[ignore])")]
 test:
   cargo test --workspace --exclude sp_fuzz --exclude bdk_sp_cli_v1 --exclude bdk_sp_cli_v2 --all-features
 
 [doc("Run pre-push suite: format, check, and test")]
 pre-push: fmt check test
+
+[doc("Run the slow tests that `test`/`pre-push` skip")]
+test-slow:
+  cargo test --workspace --exclude sp_fuzz --exclude bdk_sp_cli_v1 --exclude bdk_sp_cli_v2 --all-features -- --ignored slow::
+
+[doc("Run all tests including slow/ignored tests on the workspace with all features")]
+test-all: pre-push test-slow

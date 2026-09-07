@@ -273,7 +273,12 @@ fn input_keys_intermediate_sum_is_zero_but_final_sum_is_non_zero() {
     check_cases(26);
 }
 
-#[test]
-fn maximum_per_group_recipient_limit_k_max_is_exceeded() {
-    check_cases(27);
+mod slow {
+    use super::*;
+
+    #[test]
+    #[ignore = "slow test"]
+    fn maximum_per_group_recipient_limit_k_max_is_exceeded() {
+        check_cases(27);
+    }
 }
